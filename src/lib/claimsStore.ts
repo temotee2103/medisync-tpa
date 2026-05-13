@@ -134,7 +134,16 @@ const normalizeUnifiedClaim = (claim: UnifiedClaimRecord): UnifiedClaimRecord =>
 });
 
 const SEEDED_ADMIN_CLAIMS: AdminClaimRecord[] = [
-  { id: "CLM-2024-001", hospital: "City General Hospital", patient: "John Doe", amount: 1250, status: "In review", date: "2024-01-28" },
+  {
+    id: "CLM-2024-001",
+    hospital: "City General Hospital",
+    patient: "John Doe",
+    patientId: "MEM-8823-01",
+    memberKey: "MEM-8823-01",
+    amount: 1250,
+    status: "In review",
+    date: "2024-01-28",
+  },
   { id: "CLM-2024-002", hospital: "St. Mary's Clinic", patient: "Jane Smith", amount: 450, status: "In review", date: "2024-01-29" },
   { id: "CLM-2024-003", hospital: "Ortho Specialist Ctr", patient: "Robert Brown", amount: 3400, status: "In progress", date: "2024-01-29" },
   { id: "CLM-2024-004", hospital: "Dental Care Plus", patient: "Alice Cooper", amount: 800, status: "Approved", date: "2024-01-27" },

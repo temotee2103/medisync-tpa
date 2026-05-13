@@ -307,10 +307,8 @@ const createMemberPlanLimits = (company: Company | null) => {
   );
 };
 
-const getOppositeBinaryGender = (gender: "Male" | "Female" | "Other") => {
-  if (gender === "Male") return "Female";
-  if (gender === "Female") return "Male";
-  return "Other";
+const getOppositeBinaryGender = (gender: "Male" | "Female") => {
+  return gender === "Male" ? "Female" : "Male";
 };
 
 const getNumericLimit = (value: number | "" | undefined) =>
@@ -338,7 +336,7 @@ const getDependentAllocatedCategoryLimit = (
 type DependentDraft = {
   fullName: string;
   relationship: "Spouse" | "Child" | "Parent";
-  gender: "Male" | "Female" | "Other";
+  gender: "Male" | "Female";
   nricPassport: string;
   passportExpiry: string;
   lumpSumLimit: number | "";
@@ -349,7 +347,7 @@ type MemberFormDraft = {
   staffId: string;
   fullName: string;
   dob: string;
-  gender: "Male" | "Female" | "Other";
+  gender: "Male" | "Female";
   email: string;
   phone: string;
   phoneCountryCode: string;
@@ -1310,7 +1308,7 @@ export default function AdminCompanyManagementPage() {
                         className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
                         value={memberForm.gender}
                         onChange={(e) => {
-                          const nextGender = e.target.value as "Male" | "Female" | "Other";
+                          const nextGender = e.target.value as "Male" | "Female";
                           setMemberForm((prev) => ({
                             ...prev,
                             gender: nextGender,
@@ -1324,7 +1322,6 @@ export default function AdminCompanyManagementPage() {
                       >
                         <option value="Male">Male</option>
                         <option value="Female">Female</option>
-                        <option value="Other">Other</option>
                       </select>
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                     </div>
@@ -1721,14 +1718,13 @@ export default function AdminCompanyManagementPage() {
                                   setMemberForm((prev) => ({
                                     ...prev,
                                     dependents: prev.dependents.map((item, i) =>
-                                      i === index ? { ...item, gender: e.target.value as "Male" | "Female" | "Other" } : item
+                                      i === index ? { ...item, gender: e.target.value as "Male" | "Female" } : item
                                     ),
                                   }))
                                 }
                               >
                                 <option value="Male">Male</option>
                                 <option value="Female">Female</option>
-                                <option value="Other">Other</option>
                               </select>
                               <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                             </div>

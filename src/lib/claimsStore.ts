@@ -18,12 +18,18 @@ export type AdminClaimRecord = {
   diagnosis?: string;
   diagnosisCodes?: string[];
   medicationDescription?: string;
+  consultationFee?: string;
   medicationFee?: string;
   injectionFee?: string;
   investigationFee?: string;
   procedureFee?: string;
   immunizationFee?: string;
   selectedChargeItems?: Record<string, string[]>;
+  mcRequired?: boolean;
+  mcFrom?: string;
+  mcTo?: string;
+  mcDays?: number;
+  rlRequired?: boolean;
   mcFileName?: string;
   referralFileName?: string;
   finalBillFileName?: string;

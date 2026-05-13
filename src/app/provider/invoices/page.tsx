@@ -63,6 +63,7 @@ export default function ProviderInvoicePage() {
   const [selectedDiagnoses, setSelectedDiagnoses] = useState<string[]>([]);
   const [diagnosisToAdd, setDiagnosisToAdd] = useState("");
   const [medicationDescription, setMedicationDescription] = useState("");
+  const [consultationFee, setConsultationFee] = useState("");
   const [medicationFee, setMedicationFee] = useState("");
   const [injectionFee, setInjectionFee] = useState("");
   const [investigationFee, setInvestigationFee] = useState("");
@@ -70,6 +71,10 @@ export default function ProviderInvoicePage() {
   const [immunizationFee, setImmunizationFee] = useState("");
   const [adminDraftTotalAmount, setAdminDraftTotalAmount] = useState("");
   const [serviceType, setServiceType] = useState("Annual Health Screening (AHS)");
+  const [mcRequired, setMcRequired] = useState<"Y" | "N">("N");
+  const [mcFrom, setMcFrom] = useState("");
+  const [mcTo, setMcTo] = useState("");
+  const [rlRequired, setRlRequired] = useState<"Y" | "N">("N");
   const [mcFileName, setMcFileName] = useState("");
   const [referralFileName, setReferralFileName] = useState("");
   const [finalBillFileName, setFinalBillFileName] = useState("");
@@ -162,6 +167,7 @@ export default function ProviderInvoicePage() {
   const isDocumentationError = error === "Please upload the final bill and reports.";
   const isGeneralSubmissionError = !!error && !isTreatmentDateError && !isDocumentationError;
   const clinicalTotalAmountNumber =
+    Number(consultationFee || 0) +
     Number(medicationFee || 0) +
     Number(injectionFee || 0) +
     Number(investigationFee || 0) +
@@ -217,6 +223,13 @@ export default function ProviderInvoicePage() {
         .filter((entry) => entry.memberKey === memberKey && entry.category === normalizedClaimCategory)
         .reduce((sum, entry) => sum + entry.amount, 0);
   const memberAvailableLimit = Math.max(memberBenefitLimit - memberReservedAmount - memberUsedAmount, 0);
+  const mcDays = useMemo(() => {
+    if (mcRequired !== "Y") return 0;
+    if (!mcFrom || !mcTo) return 0;
+    const diffMs = new Date(mcTo).getTime() - new Date(mcFrom).getTime();
+    if (Number.isNaN(diffMs) || diffMs < 0) return 0;
+    return Math.max(1, Math.ceil(diffMs / 86400000) + 1);
+  }, [mcRequired, mcFrom, mcTo]);
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const date = e.target.value;
@@ -317,6 +330,12 @@ export default function ProviderInvoicePage() {
       procedureFee,
       immunizationFee,
       selectedChargeItems,
+      consultationFee,
+      mcRequired: mcRequired === "Y",
+      mcFrom: mcRequired === "Y" ? mcFrom : "",
+      mcTo: mcRequired === "Y" ? mcTo : "",
+      mcDays: mcRequired === "Y" ? mcDays : 0,
+      rlRequired: rlRequired === "Y",
       mcFileName,
       referralFileName,
       finalBillFileName,
@@ -348,12 +367,17 @@ export default function ProviderInvoicePage() {
     setSelectedDiagnoses([]);
     setDiagnosisToAdd("");
     setMedicationDescription("");
+    setConsultationFee("");
     setMedicationFee("");
     setInjectionFee("");
     setInvestigationFee("");
     setProcedureFee("");
     setImmunizationFee("");
     setServiceType("Annual Health Screening (AHS)");
+    setMcRequired("N");
+    setMcFrom("");
+    setMcTo("");
+    setRlRequired("N");
     setMcFileName("");
     setReferralFileName("");
     setFinalBillFileName("");
@@ -419,6 +443,12 @@ export default function ProviderInvoicePage() {
         adminDraftTotalAmount,
         selectedChargeItems,
         serviceType,
+        consultationFee,
+        mcRequired,
+        mcFrom,
+        mcTo,
+        mcDays,
+        rlRequired,
         mcFileName,
         referralFileName,
         finalBillFileName,
@@ -451,6 +481,11 @@ export default function ProviderInvoicePage() {
     setImmunizationFee("");
     setAdminDraftTotalAmount("");
     setServiceType("Annual Health Screening (AHS)");
+    setConsultationFee("");
+    setMcRequired("N");
+    setMcFrom("");
+    setMcTo("");
+    setRlRequired("N");
     setMcFileName("");
     setReferralFileName("");
     setFinalBillFileName("");
@@ -516,6 +551,18 @@ export default function ProviderInvoicePage() {
     .join(", ") || provider?.address || "";
 
   const handleGenerateMcPdf = () => {
+    if (mcRequired !== "Y") {
+      setError("MC is set to No. Select Yes to generate MC.");
+      return;
+    }
+    if (!mcFrom || !mcTo) {
+      setError("Please fill MC From and MC To before generating MC.");
+      return;
+    }
+    if (new Date(mcTo).getTime() < new Date(mcFrom).getTime()) {
+      setError("MC To date cannot be earlier than MC From date.");
+      return;
+    }
     if (!treatmentDate) {
       setError("Please select treatment date before generating MC.");
       return;
@@ -530,8 +577,8 @@ export default function ProviderInvoicePage() {
       memberName: matchedMember?.fullName || "N/A",
       memberIdNo: matchedMember?.nricPassport || patientId || "N/A",
       diagnosis: diagnosisCode || "N/A",
-      mcFrom: treatmentDate,
-      mcTo: treatmentDate,
+      mcFrom,
+      mcTo,
       issueDate: today,
       filename: `mc-${invoiceNumber}.pdf`,
     });
@@ -540,6 +587,10 @@ export default function ProviderInvoicePage() {
   };
 
   const handleGenerateReferralPdf = () => {
+    if (rlRequired !== "Y") {
+      setError("Referral Letter is set to No. Select Yes to generate a referral letter.");
+      return;
+    }
     setReferralDraft({
       date: treatmentDate || today,
       specialistName: "",
@@ -555,6 +606,10 @@ export default function ProviderInvoicePage() {
   };
 
   const handleConfirmGenerateReferralPdf = () => {
+    if (rlRequired !== "Y") {
+      setError("Referral Letter is set to No. Select Yes to generate a referral letter.");
+      return;
+    }
     const nextErrors: Record<string, string> = {};
     if (!referralDraft.date) nextErrors.date = "Date is required.";
     if (!referralDraft.specialistName.trim()) nextErrors.specialistName = "Specialist Name is required.";
@@ -780,6 +835,27 @@ export default function ProviderInvoicePage() {
                 </div>
               </div>
 
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-500 ml-1">Service Type (required)</label>
+                <select
+                  className="w-full glass-select px-4 py-2"
+                  value={serviceType}
+                  onChange={(e) => {
+                    setServiceType(e.target.value);
+                    setError("");
+                  }}
+                >
+                  <option>Annual Health Screening (AHS)</option>
+                  <option>Outpatient (OP)</option>
+                  <option>Specialist Referral (SF)</option>
+                  <option>Dental</option>
+                  <option>Traditional Chinese Medicine (TCM)</option>
+                  <option>Rehabilitation</option>
+                  <option>Optical</option>
+                  <option>Others</option>
+                </select>
+              </div>
+
               <div className="space-y-3 p-4 rounded-xl border border-slate-200 bg-white/70">
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Clinical Details</h4>
                 <div className="space-y-2">
@@ -869,6 +945,29 @@ export default function ProviderInvoicePage() {
                     <h4 className="text-sm font-bold text-slate-700">Charges Breakdown</h4>
                     <span className="text-[11px] text-slate-500">Itemized by treatment category</span>
                   </div>
+                  <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/40 p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-3 items-center">
+                      <label className="text-sm font-semibold text-slate-800">Consultation Fee (RM)</label>
+                      <div className="relative">
+                        <span className="currency-prefix text-[10px]">RM</span>
+                        <input
+                          type="number"
+                          className="w-full currency-input py-2 text-sm bg-white rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-400"
+                          placeholder="0.00"
+                          min="0"
+                          step="0.01"
+                          value={consultationFee}
+                          onChange={(e) => {
+                            setConsultationFee(e.target.value);
+                            setError("");
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Consultation fee is included in the grand total and will be stored with the claim record.
+                    </p>
+                  </div>
                   {chargeSections.map((section) => (
                     <div key={section.key} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/40 p-4">
                       <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-3 items-center">
@@ -947,24 +1046,6 @@ export default function ProviderInvoicePage() {
                   </div>
                 </div>
               )}
-
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-500 ml-1">Service Type</label>
-                <select
-                  className="w-full glass-select px-4 py-2"
-                  value={serviceType}
-                  onChange={(e) => setServiceType(e.target.value)}
-                >
-                  <option>Annual Health Screening (AHS)</option>
-                  <option>Outpatient (OP)</option>
-                  <option>Specialist Referral (SF)</option>
-                  <option>Dental</option>
-                  <option>Traditional Chinese Medicine (TCM)</option>
-                  <option>Rehabilitation</option>
-                  <option>Optical</option>
-                  <option>Others</option>
-                </select>
-              </div>
             </div>
 
             <div className="h-px bg-slate-200/50" />
@@ -976,7 +1057,68 @@ export default function ProviderInvoicePage() {
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-500 ml-1">MC (Member) - Optional</label>
+                  <label className="text-xs font-medium text-slate-500 ml-1">Medical Certificate (MC)</label>
+                  <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-[140px_1fr] items-center gap-3">
+                      <label className="text-xs font-semibold text-slate-700">MC Required?</label>
+                      <select
+                        className="w-full glass-select px-3 py-2 text-sm bg-white"
+                        value={mcRequired}
+                        onChange={(e) => {
+                          const next = (e.target.value as "Y" | "N") || "N";
+                          setMcRequired(next);
+                          if (next === "Y" && treatmentDate && !mcFrom && !mcTo) {
+                            setMcFrom(treatmentDate);
+                            setMcTo(treatmentDate);
+                          }
+                          if (next === "N") {
+                            setMcFrom("");
+                            setMcTo("");
+                          }
+                          setError("");
+                        }}
+                      >
+                        <option value="N">No</option>
+                        <option value="Y">Yes</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-medium text-slate-600">MC From</label>
+                        <input
+                          type="date"
+                          className="w-full glass-input px-3 py-2 text-sm bg-white"
+                          value={mcFrom}
+                          onChange={(e) => {
+                            setMcFrom(e.target.value);
+                            setError("");
+                          }}
+                          disabled={mcRequired !== "Y"}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-medium text-slate-600">MC To</label>
+                        <input
+                          type="date"
+                          className="w-full glass-input px-3 py-2 text-sm bg-white"
+                          value={mcTo}
+                          onChange={(e) => {
+                            setMcTo(e.target.value);
+                            setError("");
+                          }}
+                          disabled={mcRequired !== "Y"}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-[140px_1fr] items-center gap-3">
+                      <label className="text-xs font-semibold text-slate-700">MC Days</label>
+                      <input
+                        className="w-full glass-input px-3 py-2 text-sm bg-slate-50"
+                        value={String(mcDays)}
+                        readOnly
+                      />
+                    </div>
+                  </div>
                   <label className="border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center bg-slate-50/50 hover:bg-white/40 transition-all cursor-pointer group block">
                     <Upload className="w-6 h-6 text-slate-300 mx-auto mb-2 group-hover:scale-110 transition-transform" />
                     <p className="text-xs font-bold text-slate-700">Upload MC</p>
@@ -1000,7 +1142,26 @@ export default function ProviderInvoicePage() {
                   </GlassButton>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-500 ml-1">Referral Letter - Optional</label>
+                  <label className="text-xs font-medium text-slate-500 ml-1">Referral Letter (RL)</label>
+                  <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-[160px_1fr] items-center gap-3">
+                      <label className="text-xs font-semibold text-slate-700">RL Required?</label>
+                      <select
+                        className="w-full glass-select px-3 py-2 text-sm bg-white"
+                        value={rlRequired}
+                        onChange={(e) => {
+                          setRlRequired(((e.target.value as "Y" | "N") || "N") as "Y" | "N");
+                          setError("");
+                        }}
+                      >
+                        <option value="N">No</option>
+                        <option value="Y">Yes</option>
+                      </select>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      If RL is set to No, referral letter PDF generation will be disabled.
+                    </p>
+                  </div>
                   <label className="border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center bg-slate-50/50 hover:bg-white/40 transition-all cursor-pointer group block">
                     <Upload className="w-6 h-6 text-slate-300 mx-auto mb-2 group-hover:scale-110 transition-transform" />
                     <p className="text-xs font-bold text-slate-700">Upload Referral Letter</p>

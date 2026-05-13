@@ -17,6 +17,8 @@ import { downloadText } from "@/lib/download";
 import { readFileAsDataUrl } from "@/lib/fileData";
 import { formatCurrency, formatDateDisplay } from "@/lib/formats";
 import { canTransition, CLAIM_STATUS, type ClaimStatus } from "@/lib/claimFlow";
+import { notifyClaimStatusEmail } from "@/lib/claimNotifications";
+import { ensureProviderSeed, getProviderDirectory } from "@/lib/providerSession";
 import {
   addAdminClaimRequest,
   ensureAdminClaimsSeed,
@@ -53,6 +55,14 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
     () => normalizeClaimStatus(claim?.status || CLAIM_STATUS.IN_REVIEW) as ClaimStatus,
     [claim?.status]
   );
+  const providerDirectory = useMemo(() => {
+    ensureProviderSeed();
+    return getProviderDirectory();
+  }, []);
+  const providerContactEmail = useMemo(() => {
+    if (!claim?.hospital) return "";
+    return providerDirectory.find((entry) => entry.providerName === claim.hospital)?.contactEmail || "";
+  }, [claim?.hospital, providerDirectory]);
   const chargeBreakdown = useMemo(
     () =>
       [
@@ -81,6 +91,24 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
   const [approvalError, setApprovalError] = useState("");
   const [lastRequestToken, setLastRequestToken] = useState("");
   const [flowError, setFlowError] = useState("");
+
+  const notifyProviderStatus = (fromStatus: string, toStatus: string, note?: string) => {
+    if (!providerContactEmail) return;
+    if (fromStatus === toStatus) return;
+
+    const subject = `Claim ${claimId} status updated: ${fromStatus} → ${toStatus}`;
+    const noteLine = note?.trim() ? `\n\nNote:\n${note.trim()}` : "";
+    const text =
+      [
+        `Claim ID: ${claimId}`,
+        `Claim type: Provider cashless`,
+        `Patient: ${claim?.patient || ""}`,
+        `Provider: ${claim?.hospital || ""}`,
+        `Status: ${fromStatus} → ${toStatus}`,
+      ].join("\n") + noteLine;
+
+    void notifyClaimStatusEmail({ to: providerContactEmail, subject, text });
+  };
   const closeApprovalModal = () => {
     setIsApproveOpen(false);
     setApprovalError("");
@@ -134,11 +162,13 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
 
     try {
       setFlowError("");
+      const fromStatus = claim?.status || "";
       updateAdminClaimStatus(claimId, "Approved", {
         bankSlipFileName: bankSlipFile.name,
         bankSlipDataUrl: bankSlipFile.dataUrl,
         bankSlipUploadedAt: new Date().toISOString(),
       });
+      notifyProviderStatus(fromStatus, "Approved");
       closeApprovalModal();
     } catch (error) {
       setApprovalError(error instanceof Error ? error.message : "Unable to approve this claim.");
@@ -147,7 +177,9 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
   const generateListing = () => {
     try {
       setFlowError("");
+      const fromStatus = claim?.status || "";
       updateAdminClaimStatus(claimId, CLAIM_STATUS.LISTED);
+      notifyProviderStatus(fromStatus, CLAIM_STATUS.LISTED);
       downloadText(`claim-listing-${claimId}.txt`, `Claim ${claimId} listed on ${new Date().toISOString()}`);
     } catch (error) {
       setFlowError(error instanceof Error ? error.message : "Unable to generate listing for this claim.");
@@ -156,7 +188,9 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
   const markPaid = () => {
     try {
       setFlowError("");
+      const fromStatus = claim?.status || "";
       updateAdminClaimStatus(claimId, CLAIM_STATUS.PAID);
+      notifyProviderStatus(fromStatus, CLAIM_STATUS.PAID);
     } catch (error) {
       setFlowError(error instanceof Error ? error.message : "Unable to mark this claim as paid.");
     }
@@ -170,11 +204,13 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
     try {
       setPvError("");
       setFlowError("");
+      const fromStatus = claim?.status || "";
       updateAdminClaimStatus(claimId, CLAIM_STATUS.PV_UPLOADED, {
         pvFileName: pvFile.name,
         pvDataUrl: pvFile.dataUrl,
         pvUploadedAt: new Date().toISOString(),
       });
+      notifyProviderStatus(fromStatus, CLAIM_STATUS.PV_UPLOADED);
       closePvModal();
     } catch (error) {
       setPvError(error instanceof Error ? error.message : "Unable to upload the PV for this claim.");
@@ -232,7 +268,9 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
             onClick={() => {
               try {
                 setFlowError("");
+                const fromStatus = claim?.status || "";
                 updateAdminClaimStatus(claimId, "Rejected");
+                notifyProviderStatus(fromStatus, "Rejected");
               } catch (error) {
                 setFlowError(error instanceof Error ? error.message : "Unable to reject this claim.");
               }
@@ -618,7 +656,9 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
                   addAdminClaimRequest({ token, id: claimId, note: requestNote.trim(), createdAt: new Date().toISOString() });
                   try {
                     setFlowError("");
+                    const fromStatus = claim?.status || "";
                     updateAdminClaimStatus(claimId, "In progress");
+                    notifyProviderStatus(fromStatus, "In progress", requestNote);
                   } catch (error) {
                     setFlowError(error instanceof Error ? error.message : "Unable to update this claim.");
                   }

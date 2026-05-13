@@ -1,4 +1,5 @@
 import { consumeReservation, releaseReservation } from "@/lib/entitlementStore";
+import { canTransition, CLAIM_STATUS, type ClaimStatus } from "@/lib/claimFlow";
 
 export type AdminClaimRecord = {
   id: string;
@@ -56,6 +57,9 @@ export type AdminClaimRecord = {
   bankSlipFileName?: string;
   bankSlipDataUrl?: string;
   bankSlipUploadedAt?: string;
+  pvFileName?: string;
+  pvDataUrl?: string;
+  pvUploadedAt?: string;
 };
 
 export type AdminClaimRequestRecord = {
@@ -109,6 +113,15 @@ export const normalizeClaimStatus = (status?: string) => {
       return "Approved";
     case "rejected":
       return "Rejected";
+    case "listed":
+      return "Listed";
+    case "paid":
+      return "Paid";
+    case "pv uploaded":
+    case "pvuploaed":
+    case "pv_uploaded":
+    case "pv-uploaded":
+      return "PV Uploaded";
     case "request additional information":
     case "requested":
     case "in progress":
@@ -118,7 +131,6 @@ export const normalizeClaimStatus = (status?: string) => {
     case "in review":
     case "under review":
     case "high priority":
-    case "paid":
     default:
       return "In review";
   }
@@ -308,6 +320,121 @@ export const refreshMemberClaimsSnapshot = () => {
   emitMemberClaims();
 };
 
+type ClaimTransitionOptions = {
+  claimSource?: UnifiedClaimRecord["claimSource"];
+  rejectionReason?: string;
+  bankSlipFileName?: string;
+  bankSlipDataUrl?: string;
+  bankSlipUploadedAt?: string;
+  pvFileName?: string;
+  pvDataUrl?: string;
+  pvUploadedAt?: string;
+  actorType?: NonNullable<AdminClaimRecord["auditTrail"]>[number]["actorType"];
+  actorId?: string;
+  actorName?: string;
+  note?: string;
+};
+
+export const transitionClaimStatus = (claimId: string, nextStatus: string, options?: ClaimTransitionOptions) => {
+  ensureUnifiedClaimsStore();
+
+  const target = unifiedClaimsSnapshot.find(
+    (claim) => claim.id === claimId && (!options?.claimSource || claim.claimSource === options.claimSource)
+  );
+  if (!target) {
+    throw new Error("Claim not found.");
+  }
+
+  const fromStatus = normalizeClaimStatus((target as { status?: string }).status) as ClaimStatus;
+  const toStatus = normalizeClaimStatus(nextStatus) as ClaimStatus;
+
+  if (fromStatus === toStatus) return;
+  if (!canTransition(fromStatus, toStatus)) {
+    throw new Error(`Cannot transition claim from "${fromStatus}" to "${toStatus}".`);
+  }
+
+  const bankSlipFileName =
+    options?.bankSlipFileName?.trim() || (target as AdminClaimRecord | MemberClaimRecord).bankSlipFileName;
+  const bankSlipDataUrl = options?.bankSlipDataUrl || (target as AdminClaimRecord | MemberClaimRecord).bankSlipDataUrl;
+  const bankSlipUploadedAt =
+    options?.bankSlipUploadedAt || (target as AdminClaimRecord | MemberClaimRecord).bankSlipUploadedAt;
+
+  if (toStatus === CLAIM_STATUS.APPROVED && (!bankSlipFileName || !bankSlipDataUrl)) {
+    throw new Error("Bank-in slip is required before approving a claim.");
+  }
+
+  if (toStatus === CLAIM_STATUS.PV_UPLOADED && target.claimSource === "provider_cashless") {
+    const pvFileName = options?.pvFileName?.trim() || (target as AdminClaimRecord).pvFileName;
+    const pvDataUrl = options?.pvDataUrl || (target as AdminClaimRecord).pvDataUrl;
+    if (!pvFileName || !pvDataUrl) {
+      throw new Error("PV file is required before marking a claim as PV Uploaded.");
+    }
+  }
+
+  const actorType = options?.actorType || "admin";
+  const actorId = options?.actorId || "admin";
+
+  unifiedClaimsSnapshot = unifiedClaimsSnapshot.map((claim) => {
+    if (claim.id !== claimId || claim.claimSource !== target.claimSource) return claim;
+
+    const base = {
+      ...claim,
+      status: toStatus,
+      rejectionReason:
+        toStatus === CLAIM_STATUS.REJECTED
+          ? options?.rejectionReason?.trim() || (claim as AdminClaimRecord | MemberClaimRecord).rejectionReason
+          : undefined,
+      bankSlipFileName,
+      bankSlipDataUrl,
+      bankSlipUploadedAt,
+      pvFileName:
+        target.claimSource === "provider_cashless"
+          ? options?.pvFileName?.trim() || (claim as AdminClaimRecord).pvFileName
+          : undefined,
+      pvDataUrl:
+        target.claimSource === "provider_cashless" ? options?.pvDataUrl || (claim as AdminClaimRecord).pvDataUrl : undefined,
+      pvUploadedAt:
+        target.claimSource === "provider_cashless"
+          ? options?.pvUploadedAt || (claim as AdminClaimRecord).pvUploadedAt
+          : undefined,
+      auditTrail: [
+        ...(((claim as AdminClaimRecord | MemberClaimRecord).auditTrail ||
+          []) as NonNullable<AdminClaimRecord["auditTrail"]>),
+        {
+          at: new Date().toISOString(),
+          actorType,
+          actorId,
+          actorName: options?.actorName,
+          action: "status_change",
+          fromStatus,
+          toStatus,
+          note:
+            options?.note ||
+            (toStatus === CLAIM_STATUS.REJECTED ? options?.rejectionReason?.trim() : undefined),
+        },
+      ],
+    };
+
+    return normalizeUnifiedClaim(base as UnifiedClaimRecord);
+  });
+
+  writeJson(CLAIMS_V2_KEY, unifiedClaimsSnapshot);
+  rebuildDerivedSnapshots();
+  if (target.claimSource === "provider_cashless") {
+    emitAdminClaims();
+  } else {
+    emitMemberClaims();
+  }
+
+  // Entitlement rule: consume on approve, release on reject.
+  if (toStatus === CLAIM_STATUS.APPROVED) {
+    consumeReservation(claimId, bankSlipUploadedAt);
+  }
+  if (toStatus === CLAIM_STATUS.REJECTED) {
+    releaseReservation(claimId);
+  }
+};
+
 export const updateAdminClaimStatus = (
   claimId: string,
   nextStatus: string,
@@ -316,58 +443,12 @@ export const updateAdminClaimStatus = (
     bankSlipFileName?: string;
     bankSlipDataUrl?: string;
     bankSlipUploadedAt?: string;
+    pvFileName?: string;
+    pvDataUrl?: string;
+    pvUploadedAt?: string;
   }
 ) => {
-  ensureUnifiedClaimsStore();
-  const normalizedStatus = normalizeClaimStatus(nextStatus);
-  if (
-    normalizedStatus === "Approved" &&
-    (!options?.bankSlipFileName?.trim() || !options.bankSlipDataUrl)
-  ) {
-    throw new Error("Bank-in slip is required before approving a claim.");
-  }
-
-  const previous = unifiedClaimsSnapshot.find((claim) => claim.id === claimId) || null;
-  const nextUnified = unifiedClaimsSnapshot.map((claim) =>
-    claim.id === claimId && claim.claimSource === "provider_cashless"
-      ? normalizeUnifiedClaim({
-          ...claim,
-          status: normalizedStatus,
-          rejectionReason:
-            normalizedStatus === "Rejected"
-              ? options?.rejectionReason?.trim() || (claim as AdminClaimRecord).rejectionReason
-              : undefined,
-          bankSlipFileName: options?.bankSlipFileName?.trim() || (claim as AdminClaimRecord).bankSlipFileName,
-          bankSlipDataUrl: options?.bankSlipDataUrl || (claim as AdminClaimRecord).bankSlipDataUrl,
-          bankSlipUploadedAt: options?.bankSlipUploadedAt || (claim as AdminClaimRecord).bankSlipUploadedAt,
-          auditTrail: [
-            ...(((claim as AdminClaimRecord).auditTrail || []) as NonNullable<AdminClaimRecord["auditTrail"]>),
-            {
-              at: new Date().toISOString(),
-              actorType: "admin",
-              actorId: "admin",
-              action: "status_change",
-              fromStatus: previous?.status,
-              toStatus: normalizedStatus,
-              note: normalizedStatus === "Rejected" ? options?.rejectionReason?.trim() : undefined,
-            },
-          ],
-        })
-      : claim
-  );
-
-  unifiedClaimsSnapshot = nextUnified;
-  writeJson(CLAIMS_V2_KEY, unifiedClaimsSnapshot);
-  rebuildDerivedSnapshots();
-  emitAdminClaims();
-
-  // Entitlement rule: consume on approve, release on reject/cancel.
-  if (normalizedStatus === "Approved") {
-    consumeReservation(claimId, options?.bankSlipUploadedAt);
-  }
-  if (normalizedStatus === "Rejected") {
-    releaseReservation(claimId);
-  }
+  transitionClaimStatus(claimId, nextStatus, { ...(options || {}), claimSource: "provider_cashless", actorType: "admin", actorId: "admin" });
 };
 
 export const deleteAdminClaim = (claimId: string) => {
@@ -437,45 +518,7 @@ export const updateMemberClaimStatus = (
     bankSlipUploadedAt?: string;
   }
 ) => {
-  ensureUnifiedClaimsStore();
-  const normalizedStatus = normalizeClaimStatus(nextStatus);
-  if (
-    normalizedStatus === "Approved" &&
-    (!options?.bankSlipFileName?.trim() || !options.bankSlipDataUrl)
-  ) {
-    throw new Error("Bank-in slip is required before approving a claim.");
-  }
-  const previous = unifiedClaimsSnapshot.find((claim) => claim.id === claimId) || null;
-  unifiedClaimsSnapshot = unifiedClaimsSnapshot.map((claim) =>
-    claim.id === claimId && claim.claimSource === "member_reimbursement"
-      ? normalizeUnifiedClaim({
-          ...claim,
-          status: normalizedStatus,
-          rejectionReason:
-            normalizedStatus === "Rejected"
-              ? options?.rejectionReason?.trim() || (claim as MemberClaimRecord).rejectionReason
-              : undefined,
-          bankSlipFileName: options?.bankSlipFileName?.trim() || (claim as MemberClaimRecord).bankSlipFileName,
-          bankSlipDataUrl: options?.bankSlipDataUrl || (claim as MemberClaimRecord).bankSlipDataUrl,
-          bankSlipUploadedAt: options?.bankSlipUploadedAt || (claim as MemberClaimRecord).bankSlipUploadedAt,
-          auditTrail: [
-            ...(((claim as MemberClaimRecord).auditTrail || []) as NonNullable<MemberClaimRecord["auditTrail"]>),
-            {
-              at: new Date().toISOString(),
-              actorType: "admin",
-              actorId: "admin",
-              action: "status_change",
-              fromStatus: previous?.status,
-              toStatus: normalizedStatus,
-              note: normalizedStatus === "Rejected" ? options?.rejectionReason?.trim() : undefined,
-            },
-          ],
-        })
-      : claim
-  );
-  writeJson(CLAIMS_V2_KEY, unifiedClaimsSnapshot);
-  rebuildDerivedSnapshots();
-  emitMemberClaims();
+  transitionClaimStatus(claimId, nextStatus, { ...(options || {}), claimSource: "member_reimbursement", actorType: "admin", actorId: "admin" });
 };
 
 export const deleteMemberClaim = (claimId: string) => {

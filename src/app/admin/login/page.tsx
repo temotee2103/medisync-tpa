@@ -57,7 +57,7 @@ export default function AdminLoginPage() {
     setError("");
     try {
       resetSharedClientState();
-      const response = await fetch("/api/auth/admin/login", {
+      const response = await fetch(withBasePath("/api/auth/admin/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: formData.username.trim(), password: formData.password }),
@@ -146,7 +146,9 @@ export default function AdminLoginPage() {
               />
             </div>
             <div className="flex justify-end">
-              <a href="/forgot-password" className="text-xs text-sky-600 font-medium hover:underline">Forgot Password?</a>
+              <a href={withBasePath("/forgot-password")} className="text-xs text-sky-600 font-medium hover:underline">
+                Forgot Password?
+              </a>
             </div>
           </div>
 

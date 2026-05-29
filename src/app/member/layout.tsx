@@ -175,7 +175,7 @@ export default function MemberLayout({
             onClick={async () => {
               try {
                 resetSharedClientState();
-                await fetch("/api/auth/logout", { method: "POST" });
+                await fetch(withBasePath("/api/auth/logout"), { method: "POST" });
                 createSupabaseBrowserClient().auth.signOut();
               } finally {
                 router.replace("/member/login");

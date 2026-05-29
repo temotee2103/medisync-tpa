@@ -26,6 +26,7 @@ import { downloadText } from "@/lib/download";
 import * as providerSession from "@/lib/providerSession";
 import { fetchAdminSession, type AdminRole } from "@/lib/adminSession";
 import { canDeleteAdminResource, isAdminReadOnly } from "@/lib/adminPermissions";
+import { withBasePath } from "@/lib/basePath";
 import {
   buildAddressLine,
   DIAL_CODES,
@@ -1007,7 +1008,7 @@ export default function VendorManagementPage() {
                   onClick={async () => {
                     if (disableVendorEditing) return;
                     if (!vendorForm.vendorId || !vendorForm.providerName) return;
-                    await fetch("/api/admin/providers/upsert", {
+                    await fetch(withBasePath("/api/admin/providers/upsert"), {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({
@@ -1853,7 +1854,7 @@ export default function VendorManagementPage() {
                     setMemberFormError("Temporary password is required.");
                     return;
                   }
-                  const response = await fetch("/api/admin/providers/create-user", {
+                  const response = await fetch(withBasePath("/api/admin/providers/create-user"), {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({

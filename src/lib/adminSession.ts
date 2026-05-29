@@ -1,4 +1,5 @@
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { withBasePath } from "@/lib/basePath";
 
 export type AdminRole = "super_admin" | "admin" | "accountant";
 
@@ -33,7 +34,7 @@ const toUiStatus = (value: unknown): "Active" | "Disabled" => {
 export const fetchAdminSession = async (): Promise<AdminSession | null> => {
   if (typeof window === "undefined") return null;
   try {
-    const response = await fetch("/api/auth/admin/session");
+    const response = await fetch(withBasePath("/api/auth/admin/session"));
     if (response.ok) {
       const payload = (await response.json()) as Partial<AdminSession>;
       if (payload.profileId && payload.adminId) {

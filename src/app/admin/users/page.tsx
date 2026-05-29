@@ -27,6 +27,7 @@ import {
 import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { withBasePath } from "@/lib/basePath";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   ensureMemberSeed,
@@ -527,7 +528,7 @@ function UserManagementPageContent() {
     if (!canOperateUsersPage) return;
     if (!newAdminForm.adminId || !newAdminForm.fullName || !newAdminForm.email || !newAdminForm.password) return;
     try {
-      const response = await fetch("/api/admin/admin-users/create-user", {
+      const response = await fetch(withBasePath("/api/admin/admin-users/create-user"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -900,7 +901,7 @@ function UserManagementPageContent() {
       };
       if (editingVendorCredential.password) requestPayload.password = editingVendorCredential.password;
 
-      const response = await fetch("/api/admin/providers/create-user", {
+      const response = await fetch(withBasePath("/api/admin/providers/create-user"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload),
@@ -933,7 +934,7 @@ function UserManagementPageContent() {
   const resetCorporateMemberPassword = async (member: MemberDirectoryEntry) => {
     const tempPassword = `Temp${Math.floor(100000 + Math.random() * 900000)}`;
     try {
-      const response = await fetch("/api/admin/members/reset-password", {
+      const response = await fetch(withBasePath("/api/admin/members/reset-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ companyId: member.companyId, staffId: member.staffId, newPassword: tempPassword }),
@@ -951,7 +952,7 @@ function UserManagementPageContent() {
   const resetVendorMemberPassword = async (member: VendorMemberDirectoryEntry) => {
     const tempPassword = `Temp${Math.floor(100000 + Math.random() * 900000)}`;
     try {
-      const response = await fetch("/api/admin/providers/create-user", {
+      const response = await fetch(withBasePath("/api/admin/providers/create-user"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -983,7 +984,7 @@ function UserManagementPageContent() {
     }
     const tempPassword = `Temp${Math.floor(100000 + Math.random() * 900000)}`;
     try {
-      const response = await fetch("/api/admin/admin-users/reset-password", {
+      const response = await fetch(withBasePath("/api/admin/admin-users/reset-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileId: member.profileId, newPassword: tempPassword }),
@@ -1014,7 +1015,7 @@ function UserManagementPageContent() {
       return;
     }
     try {
-      const response = await fetch("/api/admin/admin-users/delete-user", {
+      const response = await fetch(withBasePath("/api/admin/admin-users/delete-user"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profileId: pendingAdminDeletion.profileId, adminId: pendingAdminDeletion.adminId }),

@@ -39,7 +39,7 @@ export default function ProviderLoginPage() {
     setError("");
     try {
       resetSharedClientState();
-      const response = await fetch("/api/auth/provider/login", {
+      const response = await fetch(withBasePath("/api/auth/provider/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -126,7 +126,9 @@ export default function ProviderLoginPage() {
               />
             </div>
             <div className="flex justify-end">
-              <a href="/forgot-password" className="text-xs text-sky-600 font-medium hover:underline">Forgot Password?</a>
+              <a href={withBasePath("/forgot-password")} className="text-xs text-sky-600 font-medium hover:underline">
+                Forgot Password?
+              </a>
             </div>
           </div>
 

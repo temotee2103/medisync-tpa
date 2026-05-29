@@ -2,14 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/config";
 
-const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
-
-const withBasePath = (path: string) => {
-  if (!basePath) return path;
-  return `${basePath}${path}`.replace(/\/{2,}/g, "/");
-};
-
-const normalizePathname = (pathname: string) => {
+const normalizePathname = (pathname: string, basePath: string) => {
   let value = pathname;
   if (basePath) {
     if (value === basePath) value = "/";
@@ -41,7 +34,8 @@ const getPortalFromPath = (pathname: string) => {
 };
 
 export async function middleware(request: NextRequest) {
-  const pathname = normalizePathname(request.nextUrl.pathname);
+  const runtimeBasePath = request.nextUrl.basePath || process.env.NEXT_PUBLIC_BASE_PATH || "";
+  const pathname = normalizePathname(request.nextUrl.pathname, runtimeBasePath);
   if (isPublicPath(pathname)) return NextResponse.next();
 
   const portal = getPortalFromPath(pathname);
@@ -67,7 +61,7 @@ export async function middleware(request: NextRequest) {
 
   if (!user) {
     const url = request.nextUrl.clone();
-    url.pathname = withBasePath(`/${portal}/login`);
+    url.pathname = `/${portal}/login`;
     url.searchParams.set("reason", "unauthenticated");
     return NextResponse.redirect(url);
   }
@@ -78,7 +72,7 @@ export async function middleware(request: NextRequest) {
   if (roleError || !hasPortalRole) {
     await supabase.auth.signOut();
     const url = request.nextUrl.clone();
-    url.pathname = withBasePath(`/${portal}/login`);
+    url.pathname = `/${portal}/login`;
     url.searchParams.set("reason", roleError ? "role_error" : "access_denied");
     return NextResponse.redirect(url);
   }
@@ -86,7 +80,7 @@ export async function middleware(request: NextRequest) {
   const mustChangePassword = Boolean((user.user_metadata as any)?.must_change_password);
   if (mustChangePassword && !isPortalChangePassword(pathname)) {
     const url = request.nextUrl.clone();
-    url.pathname = withBasePath(`/${portal}/change-password`);
+    url.pathname = `/${portal}/change-password`;
     return NextResponse.redirect(url);
   }
 

@@ -9,6 +9,7 @@ import {
   Search, 
   ShieldCheck, 
   User, 
+  UserCog,
   CheckCircle2,
   XCircle,
   Mail,
@@ -23,30 +24,43 @@ import {
   Building2,
   Stethoscope
 } from "lucide-react";
-import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   ensureMemberSeed,
   getDependentsByParent,
-  getMemberDirectory,
+  getMemberDirectorySnapshot,
   isPrimaryMember,
   MemberDirectoryEntry,
   removeMemberDirectoryEntry,
-  saveMemberAccount,
   saveMemberDirectoryEntry,
+  subscribeMemberDirectory,
 } from "@/lib/memberSession";
 import {
-  ensureProviderSeed,
-  getProviderDirectory,
-  getVendorMemberAccounts,
-  getVendorMembers,
+  getProviderDirectoryServerSnapshot,
+  getProviderDirectorySnapshot,
+  getVendorMembersSnapshot,
+  normalizeProviderUserRole,
+  refreshProviderDirectorySnapshot,
+  refreshVendorMembersSnapshot,
+  subscribeProviderDirectory,
+  subscribeVendorMembers as subscribeProviderMembers,
   VendorMemberDirectoryEntry,
   saveVendorMember,
-  saveVendorMemberAccount,
 } from "@/lib/providerSession";
-import { ensureAdminSeed, getAdminDirectory, AdminDirectoryEntry, saveAdminAccount, saveAdminDirectoryEntry } from "@/lib/adminSession";
-import { sha256 } from "@/lib/hash";
+import {
+  fetchAdminDirectory,
+  fetchAdminSession,
+  type AdminDirectoryEntry,
+  type AdminRole,
+} from "@/lib/adminSession";
+import {
+  canDeleteAdminResource,
+  canOperateAdminPage,
+  isAdminReadOnly,
+} from "@/lib/adminPermissions";
 import {
   DIAL_CODES,
   formatDateDisplay,
@@ -56,7 +70,16 @@ import {
   normalizePhone,
   splitPhoneNumber,
 } from "@/lib/formats";
-import { ensureCompanySeed, getCompanies, saveCompany, type Company, type CompanyPlanCategoryKey, type CompanyPlanType } from "@/lib/companyStore";
+import {
+  ensureCompaniesStore,
+  getCompaniesServerSnapshot,
+  getCompaniesSnapshot,
+  refreshCompaniesSnapshot,
+  subscribeCompanies,
+  upsertCompany,
+  type CompanyPlanCategoryKey,
+  type CompanyPlanType,
+} from "@/lib/companyStore";
 import {
   countConfiguredPlanLimits,
   countSelectedPlanBenefits,
@@ -67,14 +90,25 @@ import {
 const EMPTY_CORPORATE_MEMBERS: MemberDirectoryEntry[] = [];
 const EMPTY_VENDOR_MEMBERS: VendorMemberDirectoryEntry[] = [];
 const EMPTY_ADMIN_MEMBERS: AdminDirectoryEntry[] = [];
-const EMPTY_COMPANIES: Company[] = [];
 const TODAY_KEY = new Date().toISOString().slice(0, 10);
-const PASSPORT_RENEWAL_KEY = "passport_renewal_requests";
+const ADMIN_USERS_ROUTE = "/admin/users";
 const NATIONALITIES = ["Malaysia", "Singapore", "Indonesia", "Thailand", "China", "India", "Japan", "Australia", "United Kingdom", "United States", "Other"];
+
+const toVendorRoleLabel = (value?: string | null) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized.includes("doctor")) return "Doctor";
+  if (normalized.includes("admin") || normalized.includes("owner")) return "Admin";
+  return "";
+};
+
+const toVendorRoleDisplay = (value?: string | null) => {
+  const label = toVendorRoleLabel(value);
+  return label || value || "—";
+};
 
 type PassportRenewalRequest = {
   id: string;
-  companyId: string;
   staffId: string;
   fullName: string;
   currentExpiry: string;
@@ -83,19 +117,26 @@ type PassportRenewalRequest = {
   submittedAt: string;
   status: "pending" | "approved" | "rejected";
   reviewedAt?: string;
-  reviewedBy?: string;
   reviewNote?: string;
+  memberProfileId?: string;
+  memberId?: string;
+  companyUuid?: string;
 };
 
-const getPassportRenewalRequests = () => {
-  if (typeof window === "undefined") return [] as PassportRenewalRequest[];
-  const raw = localStorage.getItem(PASSPORT_RENEWAL_KEY);
-  return raw ? (JSON.parse(raw) as PassportRenewalRequest[]) : [];
-};
-
-const savePassportRenewalRequests = (requests: PassportRenewalRequest[]) => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(PASSPORT_RENEWAL_KEY, JSON.stringify(requests));
+type PassportRenewalRow = {
+  id?: string | null;
+  staff_id?: string | null;
+  full_name?: string | null;
+  current_expiry?: string | null;
+  new_expiry?: string | null;
+  file_name?: string | null;
+  created_at?: string | null;
+  status?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
+  member_profile_id?: string | null;
+  member_id?: string | null;
+  company_id?: string | null;
 };
 
 const getOppositeBinaryGender = (gender: "Male" | "Female") => {
@@ -136,67 +177,29 @@ const getDependentAllocatedCategoryLimit = (
 ) =>
   dependents.reduce((sum, dependent) => sum + getNumericLimit(dependent.planLimits?.[key]), 0);
 
-let corporateSnapshot: MemberDirectoryEntry[] = EMPTY_CORPORATE_MEMBERS;
-let vendorSnapshot: VendorMemberDirectoryEntry[] = EMPTY_VENDOR_MEMBERS;
+type ActionFeedback = {
+  tone: "success" | "error";
+  message: string;
+};
+
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error ? error.message : fallback;
+
 let adminSnapshot: AdminDirectoryEntry[] = EMPTY_ADMIN_MEMBERS;
-let companySnapshot: Company[] = EMPTY_COMPANIES;
 
-const corporateListeners = new Set<() => void>();
-const vendorListeners = new Set<() => void>();
 const adminListeners = new Set<() => void>();
-const companyListeners = new Set<() => void>();
-
-const subscribeCorporateMembers = (listener: () => void) => {
-  corporateListeners.add(listener);
-  return () => corporateListeners.delete(listener);
-};
-
-const subscribeVendorMembers = (listener: () => void) => {
-  vendorListeners.add(listener);
-  return () => vendorListeners.delete(listener);
-};
 
 const subscribeAdminMembers = (listener: () => void) => {
   adminListeners.add(listener);
   return () => adminListeners.delete(listener);
 };
 
-const subscribeCompanies = (listener: () => void) => {
-  companyListeners.add(listener);
-  return () => companyListeners.delete(listener);
-};
-
-const getCorporateSnapshot = () => corporateSnapshot;
-const getVendorSnapshot = () => vendorSnapshot;
 const getAdminSnapshot = () => adminSnapshot;
-const getCompanySnapshot = () => companySnapshot;
 
-const refreshCorporateSnapshot = () => {
+const refreshAdminSnapshot = async () => {
   if (typeof window === "undefined") return;
-  ensureMemberSeed();
-  corporateSnapshot = getMemberDirectory().filter((entry) => isPrimaryMember(entry));
-  corporateListeners.forEach((listener) => listener());
-};
-
-const refreshVendorSnapshot = () => {
-  if (typeof window === "undefined") return;
-  ensureProviderSeed();
-  vendorSnapshot = getVendorMembers();
-  vendorListeners.forEach((listener) => listener());
-};
-
-const refreshAdminSnapshot = () => {
-  if (typeof window === "undefined") return;
-  ensureAdminSeed();
-  adminSnapshot = getAdminDirectory();
+  adminSnapshot = await fetchAdminDirectory();
   adminListeners.forEach((listener) => listener());
-};
-
-const refreshCompanySnapshot = () => {
-  if (typeof window === "undefined") return;
-  ensureCompanySeed();
-  companySnapshot = getCompanies();
-  companyListeners.forEach((listener) => listener());
 };
 
 function UserManagementPageContent() {
@@ -252,6 +255,9 @@ function UserManagementPageContent() {
     hasExistingAccount: false,
   });
   const [passportRenewMember, setPassportRenewMember] = useState<MemberDirectoryEntry | null>(null);
+  const [currentAdminRole, setCurrentAdminRole] = useState<AdminRole | null>(null);
+  const [adminRoleResolved, setAdminRoleResolved] = useState(false);
+  const [usersDataLoaded, setUsersDataLoaded] = useState(false);
   const [passportRenewDraft, setPassportRenewDraft] = useState({
     expiryDate: "",
     fileName: "",
@@ -261,18 +267,18 @@ function UserManagementPageContent() {
     | { type: "vendor"; member: VendorMemberDirectoryEntry }
     | null
   >(null);
-  const [passportRenewals, setPassportRenewals] = useState<PassportRenewalRequest[]>(() => getPassportRenewalRequests());
+  const [passportRenewals, setPassportRenewals] = useState<PassportRenewalRequest[]>([]);
   const [activeSection, setActiveSection] = useState<"corporate" | "vendor" | "admin">(initialSection);
   const [corporateFilter, setCorporateFilter] = useState<"all" | "active" | "inactive" | "expired_passport">(initialCorporateFilter);
   const [vendorFilter, setVendorFilter] = useState<"all" | "active" | "inactive">("all");
   const [adminFilter, setAdminFilter] = useState<"all" | "active" | "inactive">("all");
+  const [actionFeedback, setActionFeedback] = useState<ActionFeedback | null>(null);
+  const [pendingAdminDeletion, setPendingAdminDeletion] = useState<AdminDirectoryEntry | null>(null);
   const [newAdminForm, setNewAdminForm] = useState({
     adminId: "",
     fullName: "",
     email: "",
-    role: "staff" as "super_admin" | "admin" | "staff",
-    position: "",
-    tier: "Tier 1" as "Tier 1" | "Tier 2",
+    role: "accountant" as AdminRole,
     contactPhone: "",
     contactPhoneSecondary: "",
     password: "",
@@ -287,14 +293,19 @@ function UserManagementPageContent() {
     const century = yy > Number(new Date().toISOString().slice(2, 4)) ? 1900 : 2000;
     return `${century + yy}-${mm}-${dd}`;
   };
-  const corporateMembers = useSyncExternalStore(
-    subscribeCorporateMembers,
-    getCorporateSnapshot,
-    () => EMPTY_CORPORATE_MEMBERS
+  const memberDirectory = useSyncExternalStore(subscribeMemberDirectory, getMemberDirectorySnapshot, () => EMPTY_CORPORATE_MEMBERS);
+  const corporateMembers = useMemo(
+    () => memberDirectory.filter((entry) => isPrimaryMember(entry)),
+    [memberDirectory]
+  );
+  const providerDirectory = useSyncExternalStore(
+    subscribeProviderDirectory,
+    getProviderDirectorySnapshot,
+    getProviderDirectoryServerSnapshot
   );
   const vendorMembers = useSyncExternalStore(
-    subscribeVendorMembers,
-    getVendorSnapshot,
+    subscribeProviderMembers,
+    getVendorMembersSnapshot,
     () => EMPTY_VENDOR_MEMBERS
   );
   const adminMembers = useSyncExternalStore(
@@ -302,22 +313,75 @@ function UserManagementPageContent() {
     getAdminSnapshot,
     () => EMPTY_ADMIN_MEMBERS
   );
-  const companies = useSyncExternalStore(
-    subscribeCompanies,
-    getCompanySnapshot,
-    () => EMPTY_COMPANIES
-  );
-  const providerDirectory = useMemo(() => {
-    ensureProviderSeed();
-    return getProviderDirectory();
+  const companies = useSyncExternalStore(subscribeCompanies, getCompaniesSnapshot, getCompaniesServerSnapshot);
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const resolvedAdminRole = currentAdminRole ?? "accountant";
+  const isUsersPageReadOnly = adminRoleResolved ? isAdminReadOnly(resolvedAdminRole, ADMIN_USERS_ROUTE) : false;
+  const canOperateUsersPage = adminRoleResolved ? canOperateAdminPage(resolvedAdminRole, ADMIN_USERS_ROUTE) : false;
+  const canDeleteUsersResource = adminRoleResolved ? canDeleteAdminResource(resolvedAdminRole) : false;
+  const isUsersDataLoading = !usersDataLoaded;
+  const showActionFeedback = useCallback((message: string, tone: ActionFeedback["tone"] = "success") => {
+    setActionFeedback({ tone, message });
   }, []);
 
+  const refreshPassportRenewals = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("passport_renewal_requests")
+        .select(
+          "id,member_profile_id,member_id,company_id,staff_id,full_name,current_expiry,new_expiry,file_name,status,created_at,reviewed_at,review_note"
+        )
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      const next = ((data as PassportRenewalRow[] | null) || []).map((row) => ({
+        id: String(row.id || ""),
+        staffId: String(row.staff_id || ""),
+        fullName: String(row.full_name || ""),
+        currentExpiry: row.current_expiry ? String(row.current_expiry) : "",
+        newExpiry: row.new_expiry ? String(row.new_expiry) : "",
+        fileName: String(row.file_name || ""),
+        submittedAt: row.created_at ? String(row.created_at) : "",
+        status: row.status === "approved" || row.status === "rejected" ? row.status : "pending",
+        reviewedAt: row.reviewed_at ? String(row.reviewed_at) : undefined,
+        reviewNote: row.review_note ? String(row.review_note) : undefined,
+        memberProfileId: row.member_profile_id ? String(row.member_profile_id) : undefined,
+        memberId: row.member_id ? String(row.member_id) : undefined,
+        companyUuid: row.company_id ? String(row.company_id) : undefined,
+      })) as PassportRenewalRequest[];
+      setPassportRenewals(next);
+    } catch {
+      setPassportRenewals([]);
+    }
+  }, [supabase]);
+
   useEffect(() => {
-    refreshCorporateSnapshot();
-    refreshVendorSnapshot();
-    refreshAdminSnapshot();
-    refreshCompanySnapshot();
-  }, []);
+    let cancelled = false;
+    ensureCompaniesStore();
+    void Promise.allSettled([
+      ensureMemberSeed(true),
+      refreshProviderDirectorySnapshot(),
+      refreshVendorMembersSnapshot(),
+      refreshAdminSnapshot(),
+      refreshCompaniesSnapshot(),
+      refreshPassportRenewals(),
+    ]).finally(() => {
+      if (!cancelled) setUsersDataLoaded(true);
+    });
+    void (async () => {
+      try {
+        const session = await fetchAdminSession();
+        if (!cancelled) setCurrentAdminRole(session?.role || "accountant");
+      } catch {
+        if (!cancelled) setCurrentAdminRole("accountant");
+      } finally {
+        if (!cancelled) setAdminRoleResolved(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshPassportRenewals]);
 
   const corporateStats = useMemo(() => {
     const total = corporateMembers.length;
@@ -344,12 +408,17 @@ function UserManagementPageContent() {
     const disabled = total - active;
     return { total, active, disabled };
   }, [adminMembers]);
+  const formatUsersMetric = (value: string | number) =>
+    isUsersDataLoading ? "Loading..." : String(value);
+  const passportPendingSummary = isUsersDataLoading
+    ? "Loading..."
+    : `${passportRenewals.filter((item) => item.status === "pending").length} Pending`;
 
   const getRoleIcon = (role: string) => {
     switch(role) {
       case 'super_admin': return <ShieldCheck className="w-4 h-4 text-purple-500" />;
       case 'admin': return <UserCog className="w-4 h-4 text-sky-500" />;
-      case 'staff': return <UserCog className="w-4 h-4 text-emerald-500" />;
+      case 'accountant': return <UserCog className="w-4 h-4 text-emerald-500" />;
       default: return <User className="w-4 h-4 text-slate-500" />;
     }
   };
@@ -455,53 +524,65 @@ function UserManagementPageContent() {
   const newAdminSecondaryPhoneParts = splitPhoneNumber(newAdminForm.contactPhoneSecondary);
 
   const saveNewAdminAccount = async () => {
-    if (!newAdminForm.adminId || !newAdminForm.fullName || !newAdminForm.password) return;
-    const passwordHash = await sha256(newAdminForm.password);
-    saveAdminDirectoryEntry({
-      adminId: newAdminForm.adminId,
-      fullName: normalizeName(newAdminForm.fullName),
-      role: newAdminForm.role,
-      status: "Active",
-      position: newAdminForm.position || undefined,
-      tier: newAdminForm.tier,
-      contactPhone: normalizePhone(newAdminForm.contactPhone) || undefined,
-      contactPhoneSecondary: normalizePhone(newAdminForm.contactPhoneSecondary) || undefined,
-    });
-    saveAdminAccount({
-      adminId: newAdminForm.adminId,
-      passwordHash,
-    });
-    refreshAdminSnapshot();
-    setNewAdminForm({
-      adminId: "",
-      fullName: "",
-      email: "",
-      role: "staff",
-      position: "",
-      tier: "Tier 1",
-      contactPhone: "",
-      contactPhoneSecondary: "",
-      password: "",
-    });
-    setIsModalOpen(false);
+    if (!canOperateUsersPage) return;
+    if (!newAdminForm.adminId || !newAdminForm.fullName || !newAdminForm.email || !newAdminForm.password) return;
+    try {
+      const response = await fetch("/api/admin/admin-users/create-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminId: newAdminForm.adminId,
+          fullName: normalizeName(newAdminForm.fullName),
+          email: newAdminForm.email,
+          password: newAdminForm.password,
+          role: newAdminForm.role,
+        }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "Unable to create admin user.");
+      }
+      await refreshAdminSnapshot();
+      setNewAdminForm({
+        adminId: "",
+        fullName: "",
+        email: "",
+        role: "accountant",
+        contactPhone: "",
+        contactPhoneSecondary: "",
+        password: "",
+      });
+      setIsModalOpen(false);
+      showActionFeedback(`Admin account ${newAdminForm.adminId} created successfully.`);
+    } catch (error) {
+      showActionFeedback(getErrorMessage(error, "Unable to create admin user."), "error");
+    }
   };
 
-  const toggleCorporateMemberStatus = (member: MemberDirectoryEntry) => {
+  const toggleCorporateMemberStatus = async (member: MemberDirectoryEntry) => {
     const nextStatus = member.status === "Active" ? "Disabled" : "Active";
-    saveMemberDirectoryEntry({
-      ...member,
-      status: nextStatus,
-    });
-    refreshCorporateSnapshot();
+    try {
+      await saveMemberDirectoryEntry({
+        ...member,
+        status: nextStatus,
+      });
+      showActionFeedback(`${member.staffId} is now ${nextStatus}.`);
+    } catch (error) {
+      showActionFeedback(getErrorMessage(error, "Unable to update member status."), "error");
+    }
   };
 
-  const toggleVendorMemberStatus = (member: VendorMemberDirectoryEntry) => {
+  const toggleVendorMemberStatus = async (member: VendorMemberDirectoryEntry) => {
     const nextStatus = member.status === "Active" ? "Disabled" : "Active";
-    saveVendorMember({
-      ...member,
-      status: nextStatus,
-    });
-    refreshVendorSnapshot();
+    try {
+      await saveVendorMember({
+        ...member,
+        status: nextStatus,
+      });
+      showActionFeedback(`${member.memberId} is now ${nextStatus}.`);
+    } catch (error) {
+      showActionFeedback(getErrorMessage(error, "Unable to update vendor member status."), "error");
+    }
   };
 
   const isPassportExpired = (member: MemberDirectoryEntry) => {
@@ -588,9 +669,6 @@ function UserManagementPageContent() {
   };
 
   const openVendorEditModal = (member: VendorMemberDirectoryEntry) => {
-    const account = getVendorMemberAccounts().find(
-      (entry) => entry.vendorId === member.vendorId && entry.memberId === member.memberId
-    );
     setEditingMemberType("vendor");
     setEditingMemberDraft({
       companyId: "",
@@ -606,7 +684,7 @@ function UserManagementPageContent() {
       dob: "",
       gender: "Male",
       relationship: "Employee",
-      role: member.role || "",
+      role: toVendorRoleLabel(member.role),
       status: member.status,
       passportExpiry: "",
       passportFileName: "",
@@ -620,7 +698,7 @@ function UserManagementPageContent() {
     setEditingDependentSharedLimit(true);
     setEditingVendorCredential({
       password: "",
-      hasExistingAccount: !!account,
+      hasExistingAccount: !!member.profileId,
     });
     setMemberEditError("");
     setIsMemberEditModalOpen(true);
@@ -713,7 +791,7 @@ function UserManagementPageContent() {
             : Math.max(familyLumpSumLimit - getDependentAllocatedLumpSum(editingDependents), 0)
           : undefined;
       if (editingCompany) {
-        saveCompany({
+        await upsertCompany({
           ...editingCompany,
           planConfig: {
             ...editingCompany.planConfig,
@@ -724,9 +802,8 @@ function UserManagementPageContent() {
             },
           },
         });
-        refreshCompanySnapshot();
       }
-      saveMemberDirectoryEntry({
+      await saveMemberDirectoryEntry({
         companyId: editingMemberDraft.companyId,
         staffId: editingMemberDraft.staffId,
         fullName: normalizeName(editingMemberDraft.fullName),
@@ -754,12 +831,13 @@ function UserManagementPageContent() {
       });
       const existingDependentIds = getDependentsByParent(editingMemberDraft.companyId, editingMemberDraft.staffId)
         .map((entry) => entry.staffId);
-      existingDependentIds.forEach((staffId) => {
-        if (!editingDependents.some((dep) => dep.staffId === staffId)) {
-          removeMemberDirectoryEntry(editingMemberDraft.companyId, staffId);
-        }
-      });
-      editingDependents.forEach((dependent, index) => {
+      const removedDependentIds = existingDependentIds.filter(
+        (staffId) => !editingDependents.some((dep) => dep.staffId === staffId)
+      );
+      await Promise.all(removedDependentIds.map((staffId) => removeMemberDirectoryEntry(editingMemberDraft.companyId, staffId)));
+
+      for (let index = 0; index < editingDependents.length; index++) {
+        const dependent = editingDependents[index];
         const dependentStaffId = dependent.staffId || `${editingMemberDraft.staffId}-DEP-${index + 1}`;
         const dependentPlanLimits =
           editingPlanType === "category"
@@ -768,7 +846,7 @@ function UserManagementPageContent() {
                 return acc;
               }, {})
             : {};
-        saveMemberDirectoryEntry({
+        await saveMemberDirectoryEntry({
           companyId: editingMemberDraft.companyId,
           staffId: dependentStaffId,
           fullName: normalizeName(dependent.fullName),
@@ -801,46 +879,38 @@ function UserManagementPageContent() {
               : {},
           planLimits: dependentPlanLimits,
         });
-      });
-      refreshCorporateSnapshot();
+      }
     } else {
       if (!editingMemberDraft.role || !["Admin", "Doctor"].includes(editingMemberDraft.role)) {
         setMemberEditError("Vendor member role must be Admin or Doctor.");
         return;
       }
-      saveVendorMember({
-        vendorId: editingMemberDraft.vendorId,
-        memberId: editingMemberDraft.memberId,
-        fullName: normalizeName(editingMemberDraft.fullName),
-        email: editingMemberDraft.email,
-        phone: normalizePhone(editingMemberDraft.phone) || undefined,
-        role: editingMemberDraft.role || undefined,
-        status: editingMemberDraft.status,
-      });
-      const existingAccount = getVendorMemberAccounts().find(
-        (entry) => entry.vendorId === editingMemberDraft.vendorId && entry.memberId === editingMemberDraft.memberId
-      );
-      if (!editingVendorCredential.password && !existingAccount) {
+      if (!editingVendorCredential.password && !editingVendorCredential.hasExistingAccount) {
         setMemberEditError("Login password is required because this member has no existing login account.");
         return;
       }
-      const passwordHash = editingVendorCredential.password
-        ? await sha256(editingVendorCredential.password)
-        : existingAccount?.passwordHash || "";
-      if (!passwordHash) {
-        setMemberEditError("Unable to save vendor member login password.");
+      const requestPayload: Record<string, unknown> = {
+        vendorId: editingMemberDraft.vendorId,
+        memberCode: editingMemberDraft.memberId,
+        fullName: normalizeName(editingMemberDraft.fullName),
+        email: editingMemberDraft.email,
+        phone: normalizePhone(editingMemberDraft.phone) || undefined,
+        role: normalizeProviderUserRole(editingMemberDraft.role) || editingMemberDraft.role || "provider_user",
+        status: editingMemberDraft.status === "Disabled" ? "disabled" : "active",
+      };
+      if (editingVendorCredential.password) requestPayload.password = editingVendorCredential.password;
+
+      const response = await fetch("/api/admin/providers/create-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestPayload),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) {
+        setMemberEditError(payload.error || "Unable to save vendor member login.");
         return;
       }
-      saveVendorMemberAccount({
-        vendorId: editingMemberDraft.vendorId,
-        memberId: editingMemberDraft.memberId,
-        username: editingMemberDraft.memberId,
-        passwordHash,
-        mustChangePassword: editingVendorCredential.password
-          ? true
-          : existingAccount?.mustChangePassword ?? false,
-      });
-      refreshVendorSnapshot();
+      await refreshVendorMembersSnapshot();
     }
     setEditingDependents([]);
     setEditingPlanType("category");
@@ -853,34 +923,112 @@ function UserManagementPageContent() {
     });
     setMemberEditError("");
     setIsMemberEditModalOpen(false);
+    showActionFeedback(
+      editingMemberType === "corporate"
+        ? `Member ${editingMemberDraft.staffId} updated successfully.`
+        : `Vendor member ${editingMemberDraft.memberId} updated successfully.`
+    );
   };
 
   const resetCorporateMemberPassword = async (member: MemberDirectoryEntry) => {
     const tempPassword = `Temp${Math.floor(100000 + Math.random() * 900000)}`;
-    const passwordHash = await sha256(tempPassword);
-    saveMemberAccount({
-      companyId: member.companyId,
-      staffId: member.staffId,
-      passwordHash,
-      mustChangePassword: true,
-    });
-    window.alert(`Temporary password for ${member.staffId}: ${tempPassword}`);
+    try {
+      const response = await fetch("/api/admin/members/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: member.companyId, staffId: member.staffId, newPassword: tempPassword }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Unable to reset member password.");
+      }
+      showActionFeedback(`Temporary password for ${member.staffId}: ${tempPassword}`);
+    } catch (error) {
+      showActionFeedback(getErrorMessage(error, "Unable to reset member password."), "error");
+    }
   };
 
   const resetVendorMemberPassword = async (member: VendorMemberDirectoryEntry) => {
     const tempPassword = `Temp${Math.floor(100000 + Math.random() * 900000)}`;
-    const existingAccount = getVendorMemberAccounts().find(
-      (entry) => entry.vendorId === member.vendorId && entry.memberId === member.memberId
-    );
-    const passwordHash = await sha256(tempPassword);
-    saveVendorMemberAccount({
-      vendorId: member.vendorId,
-      memberId: member.memberId,
-      username: existingAccount?.username || member.memberId,
-      passwordHash,
-      mustChangePassword: true,
-    });
-    window.alert(`Temporary password for ${member.memberId}: ${tempPassword}`);
+    try {
+      const response = await fetch("/api/admin/providers/create-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vendorId: member.vendorId,
+          memberCode: member.memberId,
+          fullName: normalizeName(member.fullName),
+          email: member.email,
+          password: tempPassword,
+          phone: normalizePhone(member.phone) || undefined,
+          role: normalizeProviderUserRole(member.role) || member.role || "provider_user",
+          status: member.status === "Disabled" ? "disabled" : "active",
+        }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Unable to reset vendor member password.");
+      }
+      showActionFeedback(`Temporary password for ${member.memberId}: ${tempPassword}`);
+    } catch (error) {
+      showActionFeedback(getErrorMessage(error, "Unable to reset vendor member password."), "error");
+    }
+  };
+
+  const resetAdminMemberPassword = async (member: AdminDirectoryEntry) => {
+    if (!canOperateUsersPage) return;
+    if (!member.profileId) {
+      showActionFeedback("Admin profile is missing.", "error");
+      return;
+    }
+    const tempPassword = `Temp${Math.floor(100000 + Math.random() * 900000)}`;
+    try {
+      const response = await fetch("/api/admin/admin-users/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId: member.profileId, newPassword: tempPassword }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Unable to reset admin password.");
+      }
+      showActionFeedback(`Temporary password for ${member.adminId}: ${tempPassword}`);
+    } catch (error) {
+      showActionFeedback(getErrorMessage(error, "Unable to reset admin password."), "error");
+    }
+  };
+
+  const deleteAdminMember = async (member: AdminDirectoryEntry) => {
+    if (!canDeleteUsersResource) return;
+    if (!member.profileId) {
+      showActionFeedback("Admin profile is missing.", "error");
+      return;
+    }
+    setPendingAdminDeletion(member);
+  };
+
+  const confirmDeleteAdminMember = async () => {
+    if (!pendingAdminDeletion?.profileId) {
+      setPendingAdminDeletion(null);
+      showActionFeedback("Admin profile is missing.", "error");
+      return;
+    }
+    try {
+      const response = await fetch("/api/admin/admin-users/delete-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId: pendingAdminDeletion.profileId, adminId: pendingAdminDeletion.adminId }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Unable to delete admin user.");
+      }
+      await refreshAdminSnapshot();
+      showActionFeedback(`Admin account ${pendingAdminDeletion.adminId} deleted successfully.`);
+      setPendingAdminDeletion(null);
+    } catch (error) {
+      showActionFeedback(getErrorMessage(error, "Unable to delete admin user."), "error");
+    }
   };
 
   const openPassportRenewModal = (member: MemberDirectoryEntry) => {
@@ -891,64 +1039,79 @@ function UserManagementPageContent() {
     });
   };
 
-  const submitPassportRenewal = () => {
+  const submitPassportRenewal = async () => {
     if (!passportRenewMember || !passportRenewDraft.expiryDate || !passportRenewDraft.fileName) return;
-    const existing = getPassportRenewalRequests();
-    const next: PassportRenewalRequest[] = [
-      {
-        id: `PR-${Date.now()}`,
-        companyId: passportRenewMember.companyId,
-        staffId: passportRenewMember.staffId,
-        fullName: passportRenewMember.fullName,
-        currentExpiry: passportRenewMember.passportExpiry || "",
-        newExpiry: passportRenewDraft.expiryDate,
-        fileName: passportRenewDraft.fileName,
-        submittedAt: new Date().toISOString(),
-        status: "pending",
-      },
-      ...existing,
-    ];
-    savePassportRenewalRequests(next);
-    setPassportRenewals(next);
-    setPassportRenewMember(null);
-    setPassportRenewDraft({ expiryDate: "", fileName: "" });
-  };
-
-  const reviewPassportRenewal = (requestId: string, status: "approved" | "rejected") => {
-    const requests = getPassportRenewalRequests();
-    const target = requests.find((request) => request.id === requestId);
-    if (!target) return;
-    const reviewedAt = new Date().toISOString();
-    const nextRequests = requests.map((request) =>
-      request.id === requestId
-        ? {
-            ...request,
-            status,
-            reviewedAt,
-            reviewedBy: "Admin",
-            reviewNote: status === "approved" ? "Passport renewal approved" : "Passport renewal rejected",
-          }
-        : request
-    );
-    if (status === "approved") {
-      const member = getMemberDirectory().find(
-        (entry) => entry.companyId === target.companyId && entry.staffId === target.staffId
-      );
-      if (member) {
-        saveMemberDirectoryEntry({
-          ...member,
-          passportExpiry: target.newExpiry,
-          passportFileName: target.fileName,
-          status: "Active",
-        });
-        refreshCorporateSnapshot();
-      }
+    if (!passportRenewMember.profileId) {
+      showActionFeedback("Member profile is missing. Create member Auth/profile first before submitting a passport renewal request.", "error");
+      return;
     }
-    savePassportRenewalRequests(nextRequests);
-    setPassportRenewals(nextRequests);
+    try {
+      const payload: Record<string, unknown> = {
+        member_profile_id: passportRenewMember.profileId,
+        member_id: passportRenewMember.memberUuid || null,
+        company_id: passportRenewMember.companyUuid || null,
+        staff_id: passportRenewMember.staffId,
+        full_name: passportRenewMember.fullName,
+        current_expiry: passportRenewMember.passportExpiry || null,
+        new_expiry: passportRenewDraft.expiryDate,
+        file_name: passportRenewDraft.fileName,
+        status: "pending",
+      };
+      const { error } = await supabase.from("passport_renewal_requests").insert(payload);
+      if (error) throw error;
+      await refreshPassportRenewals();
+      setPassportRenewMember(null);
+      setPassportRenewDraft({ expiryDate: "", fileName: "" });
+      showActionFeedback(`Passport renewal request submitted for ${passportRenewMember.staffId}.`);
+    } catch (error) {
+      showActionFeedback(getErrorMessage(error, "Unable to submit passport renewal request."), "error");
+    }
   };
 
-  const renderCorporateActions = (member: MemberDirectoryEntry) => (
+  const reviewPassportRenewal = async (requestId: string, status: "approved" | "rejected") => {
+    const target = passportRenewals.find((request) => request.id === requestId);
+    if (!target) return;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const reviewerProfileId = sessionData.session?.user?.id ? String(sessionData.session.user.id) : null;
+      const reviewedAt = new Date().toISOString();
+
+      const { error } = await supabase
+        .from("passport_renewal_requests")
+        .update({
+          status,
+          reviewed_at: reviewedAt,
+          reviewed_by_profile_id: reviewerProfileId,
+          review_note: status === "approved" ? "Passport renewal approved" : "Passport renewal rejected",
+          updated_at: reviewedAt,
+        })
+        .eq("id", requestId);
+      if (error) throw error;
+
+      if (status === "approved" && target.companyUuid && target.staffId) {
+        const { error: memberError } = await supabase
+          .from("members")
+          .update({
+            passport_expiry: target.newExpiry || null,
+            passport_file_path: target.fileName || null,
+            status: "active",
+          })
+          .eq("company_id", target.companyUuid)
+          .eq("staff_id", target.staffId);
+        if (memberError) throw memberError;
+        await ensureMemberSeed(true);
+      }
+
+      await refreshPassportRenewals();
+      showActionFeedback(`${target.staffId} passport renewal ${status === "approved" ? "approved" : "rejected"}.`);
+    } catch (error) {
+      showActionFeedback(getErrorMessage(error, "Unable to review passport renewal request."), "error");
+    }
+  };
+
+  const renderCorporateActions = (member: MemberDirectoryEntry) => {
+    if (isUsersPageReadOnly) return null;
+    return (
     <>
       <GlassButton
         variant="ghost"
@@ -966,7 +1129,7 @@ function UserManagementPageContent() {
       >
         <KeyRound className="w-4 h-4" />
       </GlassButton>
-      {isPassportExpired(member) && (
+      {isPassportExpired(member) && member.memberType !== "dependent" && (
         <GlassButton
           variant="ghost"
           className="h-9 w-9 p-0 flex items-center justify-center text-rose-600 hover:text-rose-700"
@@ -985,9 +1148,12 @@ function UserManagementPageContent() {
         {member.status === "Active" ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
       </GlassButton>
     </>
-  );
+    );
+  };
 
-  const renderVendorActions = (member: VendorMemberDirectoryEntry) => (
+  const renderVendorActions = (member: VendorMemberDirectoryEntry) => {
+    if (isUsersPageReadOnly) return null;
+    return (
     <>
       <GlassButton
         variant="ghost"
@@ -1014,26 +1180,34 @@ function UserManagementPageContent() {
         {member.status === "Active" ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
       </GlassButton>
     </>
-  );
+    );
+  };
 
-  const renderAdminActions = () => (
+  const renderAdminActions = (member: AdminDirectoryEntry) => {
+    if (isUsersPageReadOnly) return null;
+    return (
     <>
       <GlassButton
         variant="ghost"
         className="h-9 w-9 p-0 flex items-center justify-center text-indigo-600 hover:text-indigo-700"
         title="Reset Password"
+        onClick={() => void resetAdminMemberPassword(member)}
       >
         <UserCog className="w-4 h-4" />
       </GlassButton>
-      <GlassButton
-        variant="ghost"
-        className="h-9 w-9 p-0 flex items-center justify-center text-rose-600 hover:text-rose-700"
-        title="Disable Account"
-      >
-        <XCircle className="w-4 h-4" />
-      </GlassButton>
+      {canDeleteUsersResource && (
+        <GlassButton
+          variant="ghost"
+          className="h-9 w-9 p-0 flex items-center justify-center text-rose-600 hover:text-rose-700"
+          title="Delete Account"
+          onClick={() => void deleteAdminMember(member)}
+        >
+          <XCircle className="w-4 h-4" />
+        </GlassButton>
+      )}
     </>
-  );
+    );
+  };
 
   return (
     <div className="space-y-10">
@@ -1043,6 +1217,34 @@ function UserManagementPageContent() {
           <p className="text-slate-500">Monitor corporate, vendor, and admin access from one place.</p>
         </div>
       </div>
+
+      {actionFeedback && (
+        <div
+          className={cn(
+            "rounded-2xl border px-4 py-3 flex items-start justify-between gap-3",
+            actionFeedback.tone === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-rose-200 bg-rose-50 text-rose-700"
+          )}
+          role={actionFeedback.tone === "error" ? "alert" : "status"}
+        >
+          <div className="flex items-start gap-3">
+            {actionFeedback.tone === "success" ? (
+              <CheckCircle2 className="w-5 h-5 mt-0.5 shrink-0" />
+            ) : (
+              <XCircle className="w-5 h-5 mt-0.5 shrink-0" />
+            )}
+            <p className="text-sm font-medium">{actionFeedback.message}</p>
+          </div>
+          <button
+            type="button"
+            className="text-xs font-semibold uppercase tracking-wide opacity-70 hover:opacity-100"
+            onClick={() => setActionFeedback(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-3">
         <GlassButton
@@ -1104,7 +1306,7 @@ function UserManagementPageContent() {
           >
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400">Total Members</p>
-              <p className="text-2xl font-bold text-slate-800">{corporateStats.total}</p>
+              <p className="text-2xl font-bold text-slate-800">{formatUsersMetric(corporateStats.total)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center">
               <Users className="w-5 h-5" />
@@ -1119,7 +1321,7 @@ function UserManagementPageContent() {
           >
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400">Active Members</p>
-              <p className="text-2xl font-bold text-slate-800">{corporateStats.active}</p>
+              <p className="text-2xl font-bold text-slate-800">{formatUsersMetric(corporateStats.active)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
               <CheckCircle2 className="w-5 h-5" />
@@ -1134,7 +1336,7 @@ function UserManagementPageContent() {
           >
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400">Inactive Members</p>
-              <p className="text-2xl font-bold text-slate-800">{corporateStats.disabled}</p>
+              <p className="text-2xl font-bold text-slate-800">{formatUsersMetric(corporateStats.disabled)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center">
               <XCircle className="w-5 h-5" />
@@ -1149,7 +1351,7 @@ function UserManagementPageContent() {
           >
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400">Expired Passport</p>
-              <p className="text-2xl font-bold text-slate-800">{corporateStats.expiredPassport}</p>
+              <p className="text-2xl font-bold text-slate-800">{formatUsersMetric(corporateStats.expiredPassport)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
               <XCircle className="w-5 h-5" />
@@ -1162,7 +1364,7 @@ function UserManagementPageContent() {
               <div className="px-6 py-4 border-b border-white/60 bg-white/40 flex items-center justify-between">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">Passport Renewal Review</h3>
                 <span className="text-xs font-bold text-rose-600 bg-rose-100 px-2 py-1 rounded-full">
-                  {passportRenewals.filter((item) => item.status === "pending").length} Pending
+                  {passportPendingSummary}
                 </span>
               </div>
               <div className="overflow-x-auto">
@@ -1178,7 +1380,7 @@ function UserManagementPageContent() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/20">
-                    {passportRenewals.slice(0, 8).map((request) => (
+                    {!isUsersDataLoading && passportRenewals.slice(0, 8).map((request) => (
                       <tr key={request.id} className="hover:bg-white/30 transition-colors">
                         <td className="px-6 py-3">
                           <div className="text-sm font-semibold text-slate-700">{request.fullName}</div>
@@ -1213,7 +1415,12 @@ function UserManagementPageContent() {
                         </td>
                       </tr>
                     ))}
-                    {passportRenewals.length === 0 && (
+                    {isUsersDataLoading && (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-6 text-center text-sm text-slate-400">Loading passport renewal requests...</td>
+                      </tr>
+                    )}
+                    {!isUsersDataLoading && passportRenewals.length === 0 && (
                       <tr>
                         <td colSpan={6} className="px-6 py-6 text-center text-sm text-slate-400">No passport renewal requests yet.</td>
                       </tr>
@@ -1228,10 +1435,10 @@ function UserManagementPageContent() {
               <div className="flex items-center justify-between px-1">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">Passport Renewal Review</h3>
                 <span className="text-xs font-bold text-rose-600 bg-rose-100 px-2 py-1 rounded-full">
-                  {passportRenewals.filter((item) => item.status === "pending").length} Pending
+                  {passportPendingSummary}
                 </span>
               </div>
-              {passportRenewals.slice(0, 8).map((request) => (
+              {!isUsersDataLoading && passportRenewals.slice(0, 8).map((request) => (
                 <MobileRecordCard
                   key={request.id}
                   title={request.fullName}
@@ -1253,6 +1460,7 @@ function UserManagementPageContent() {
                   </div>
                 </MobileRecordCard>
               ))}
+              {isUsersDataLoading && <div className="py-6 text-center text-sm text-slate-400">Loading passport renewal requests...</div>}
             </div>
           }
         />
@@ -1285,7 +1493,7 @@ function UserManagementPageContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/20">
-                {filteredCorporateMembers.map((member) => (
+                {!isUsersDataLoading && filteredCorporateMembers.map((member) => (
                   <tr key={`${member.companyId}-${member.staffId}`} className="hover:bg-white/30 transition-colors">
                     <td className="px-6 py-4">
                       <button
@@ -1310,7 +1518,12 @@ function UserManagementPageContent() {
                     <td className="px-6 py-4 text-right"><div className="flex justify-end gap-2">{renderCorporateActions(member)}</div></td>
                   </tr>
                 ))}
-                {filteredCorporateMembers.length === 0 && (
+                {isUsersDataLoading && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-6 text-center text-sm text-slate-400">Loading corporate members...</td>
+                  </tr>
+                )}
+                {!isUsersDataLoading && filteredCorporateMembers.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-6 py-6 text-center text-sm text-slate-400">No corporate members yet.</td>
                   </tr>
@@ -1319,7 +1532,7 @@ function UserManagementPageContent() {
             </table>
           </div>}
             mobile={<div className="p-4 space-y-3">
-              {filteredCorporateMembers.map((member) => (
+              {!isUsersDataLoading && filteredCorporateMembers.map((member) => (
                 <MobileRecordCard
                   key={`${member.companyId}-${member.staffId}`}
                   title={<button type="button" className="text-left hover:text-sky-700 transition-colors" onClick={() => setSelectedMemberProfile({ type: "corporate", member })}>{member.fullName}</button>}
@@ -1337,7 +1550,8 @@ function UserManagementPageContent() {
                   </div>
                 </MobileRecordCard>
               ))}
-              {filteredCorporateMembers.length === 0 && <div className="py-6 text-center text-sm text-slate-400">No corporate members yet.</div>}
+              {isUsersDataLoading && <div className="py-6 text-center text-sm text-slate-400">Loading corporate members...</div>}
+              {!isUsersDataLoading && filteredCorporateMembers.length === 0 && <div className="py-6 text-center text-sm text-slate-400">No corporate members yet.</div>}
             </div>}
           />
         </GlassCard>
@@ -1365,7 +1579,7 @@ function UserManagementPageContent() {
           >
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400">Total Members</p>
-              <p className="text-2xl font-bold text-slate-800">{vendorStats.total}</p>
+              <p className="text-2xl font-bold text-slate-800">{formatUsersMetric(vendorStats.total)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
               <Users className="w-5 h-5" />
@@ -1380,7 +1594,7 @@ function UserManagementPageContent() {
           >
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400">Active Members</p>
-              <p className="text-2xl font-bold text-slate-800">{vendorStats.active}</p>
+              <p className="text-2xl font-bold text-slate-800">{formatUsersMetric(vendorStats.active)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-emerald-100/70 text-emerald-600 flex items-center justify-center">
               <CheckCircle2 className="w-5 h-5" />
@@ -1395,7 +1609,7 @@ function UserManagementPageContent() {
           >
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400">Inactive Members</p>
-              <p className="text-2xl font-bold text-slate-800">{vendorStats.disabled}</p>
+              <p className="text-2xl font-bold text-slate-800">{formatUsersMetric(vendorStats.disabled)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center">
               <XCircle className="w-5 h-5" />
@@ -1424,14 +1638,14 @@ function UserManagementPageContent() {
               <thead>
                 <tr className="bg-white/40 border-b border-white/50">
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Member</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Vendor ID</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Member ID</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Role</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/20">
-                {filteredVendorMembers.map((member) => (
+                {!isUsersDataLoading && filteredVendorMembers.map((member) => (
                   <tr key={`${member.vendorId}-${member.memberId}`} className="hover:bg-white/30 transition-colors">
                     <td className="px-6 py-4">
                       <button
@@ -1441,9 +1655,10 @@ function UserManagementPageContent() {
                       >
                         {member.fullName}
                       </button>
+                      <p className="mt-1 text-xs text-slate-500">{member.vendorId}</p>
                     </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{member.vendorId}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{member.role || "—"}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{member.memberId}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{toVendorRoleDisplay(member.role)}</td>
                     <td className="px-6 py-4">
                       <span className={cn(
                         "inline-flex items-center justify-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide",
@@ -1456,7 +1671,12 @@ function UserManagementPageContent() {
                     <td className="px-6 py-4 text-right"><div className="flex justify-end gap-2">{renderVendorActions(member)}</div></td>
                   </tr>
                 ))}
-                {filteredVendorMembers.length === 0 && (
+                {isUsersDataLoading && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-6 text-center text-sm text-slate-400">Loading vendor members...</td>
+                  </tr>
+                )}
+                {!isUsersDataLoading && filteredVendorMembers.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-6 py-6 text-center text-sm text-slate-400">No vendor members yet.</td>
                   </tr>
@@ -1465,11 +1685,11 @@ function UserManagementPageContent() {
             </table>
           </div>}
             mobile={<div className="p-4 space-y-3">
-              {filteredVendorMembers.map((member) => (
+              {!isUsersDataLoading && filteredVendorMembers.map((member) => (
                 <MobileRecordCard
                   key={`${member.vendorId}-${member.memberId}`}
                   title={<button type="button" className="text-left hover:text-sky-700 transition-colors" onClick={() => setSelectedMemberProfile({ type: "vendor", member })}>{member.fullName}</button>}
-                  subtitle={providerDirectory.find((provider) => provider.vendorId === member.vendorId)?.providerName || member.vendorId}
+                  subtitle={`${member.memberId} • ${providerDirectory.find((provider) => provider.vendorId === member.vendorId)?.providerName || member.vendorId}`}
                   badge={<span className={cn("inline-flex items-center justify-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide", member.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500")}>{member.status === "Active" ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}{member.status}</span>}
                   footer={<div className="flex flex-wrap justify-end gap-2">{renderVendorActions(member)}</div>}
                 >
@@ -1479,11 +1699,12 @@ function UserManagementPageContent() {
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Role</p>
-                    <p className="mt-1 text-sm text-slate-700">{member.role || "—"}</p>
+                    <p className="mt-1 text-sm text-slate-700">{toVendorRoleDisplay(member.role)}</p>
                   </div>
                 </MobileRecordCard>
               ))}
-              {filteredVendorMembers.length === 0 && <div className="py-6 text-center text-sm text-slate-400">No vendor members yet.</div>}
+              {isUsersDataLoading && <div className="py-6 text-center text-sm text-slate-400">Loading vendor members...</div>}
+              {!isUsersDataLoading && filteredVendorMembers.length === 0 && <div className="py-6 text-center text-sm text-slate-400">No vendor members yet.</div>}
             </div>}
           />
         </GlassCard>
@@ -1498,12 +1719,14 @@ function UserManagementPageContent() {
               <ShieldCheck className="w-5 h-5 text-indigo-500" />
               Admin Members
             </h2>
-            <p className="text-sm text-slate-500">Internal console access for Medisync staff.</p>
+            <p className="text-sm text-slate-500">Internal console access for Medisync admins and accountants.</p>
           </div>
-          <GlassButton onClick={() => setIsModalOpen(true)} className="gap-2">
-            <UserPlus className="w-4 h-4" />
-            Create Admin User
-          </GlassButton>
+          {canOperateUsersPage && (
+            <GlassButton onClick={() => setIsModalOpen(true)} className="gap-2">
+              <UserPlus className="w-4 h-4" />
+              Create Admin User
+            </GlassButton>
+          )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <button
@@ -1515,7 +1738,7 @@ function UserManagementPageContent() {
           >
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400">Total Admins</p>
-              <p className="text-2xl font-bold text-slate-800">{adminStats.total}</p>
+              <p className="text-2xl font-bold text-slate-800">{formatUsersMetric(adminStats.total)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
               <Users className="w-5 h-5" />
@@ -1530,7 +1753,7 @@ function UserManagementPageContent() {
           >
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400">Active Admins</p>
-              <p className="text-2xl font-bold text-slate-800">{adminStats.active}</p>
+              <p className="text-2xl font-bold text-slate-800">{formatUsersMetric(adminStats.active)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
               <CheckCircle2 className="w-5 h-5" />
@@ -1545,7 +1768,7 @@ function UserManagementPageContent() {
           >
             <div>
               <p className="text-xs uppercase tracking-widest text-slate-400">Inactive Admins</p>
-              <p className="text-2xl font-bold text-slate-800">{adminStats.disabled}</p>
+              <p className="text-2xl font-bold text-slate-800">{formatUsersMetric(adminStats.disabled)}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center">
               <XCircle className="w-5 h-5" />
@@ -1568,7 +1791,7 @@ function UserManagementPageContent() {
               <option>All Roles</option>
               <option>Super Admin</option>
               <option>Admin</option>
-              <option>Staff</option>
+              <option>Accountant</option>
             </select>
           </div>
         </GlassCard>
@@ -1586,7 +1809,7 @@ function UserManagementPageContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/20">
-                {filteredAdminMembersByStatus.map((user) => (
+                {!isUsersDataLoading && filteredAdminMembersByStatus.map((user) => (
                   <tr key={user.adminId} className="hover:bg-white/30 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -1615,10 +1838,15 @@ function UserManagementPageContent() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-500">—</td>
-                    <td className="px-6 py-4 text-right"><div className="flex justify-end gap-2">{renderAdminActions()}</div></td>
+                    <td className="px-6 py-4 text-right"><div className="flex justify-end gap-2">{renderAdminActions(user)}</div></td>
                   </tr>
                 ))}
-                {filteredAdminMembersByStatus.length === 0 && (
+                {isUsersDataLoading && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-6 text-center text-sm text-slate-400">Loading admin users...</td>
+                  </tr>
+                )}
+                {!isUsersDataLoading && filteredAdminMembersByStatus.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-6 py-6 text-center text-sm text-slate-400">No admin users yet.</td>
                   </tr>
@@ -1628,13 +1856,13 @@ function UserManagementPageContent() {
           </div>
         </GlassCard>}
           mobile={<div className="space-y-3">
-            {filteredAdminMembersByStatus.map((user) => (
+            {!isUsersDataLoading && filteredAdminMembersByStatus.map((user) => (
               <MobileRecordCard
                 key={user.adminId}
                 title={user.fullName}
                 subtitle={user.adminId}
                 badge={<span className={cn("inline-flex items-center justify-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide", user.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500")}>{user.status === "Active" ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}{user.status}</span>}
-                footer={<div className="flex flex-wrap justify-end gap-2">{renderAdminActions()}</div>}
+                footer={<div className="flex flex-wrap justify-end gap-2">{renderAdminActions(user)}</div>}
               >
                 <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Role</p>
@@ -1649,14 +1877,15 @@ function UserManagementPageContent() {
                 </div>
               </MobileRecordCard>
             ))}
-            {filteredAdminMembersByStatus.length === 0 && <GlassCard className="p-6 text-center text-sm text-slate-400">No admin users yet.</GlassCard>}
+            {isUsersDataLoading && <GlassCard className="p-6 text-center text-sm text-slate-400">Loading admin users...</GlassCard>}
+            {!isUsersDataLoading && filteredAdminMembersByStatus.length === 0 && <GlassCard className="p-6 text-center text-sm text-slate-400">No admin users yet.</GlassCard>}
           </div>}
         />
       </section>
       )}
 
       {selectedMemberProfile && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm">
           <div className="absolute inset-0" onClick={() => setSelectedMemberProfile(null)} />
           <GlassCard className="relative flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden border border-slate-200 bg-white/95 p-0 shadow-2xl">
             <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50/70">
@@ -1989,7 +2218,7 @@ function UserManagementPageContent() {
 
       {/* Create User Modal (Redesigned) */}
       {passportRenewMember && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm transition-all duration-300">
           <div className="absolute inset-0" onClick={() => setPassportRenewMember(null)} />
           <GlassCard className="w-full max-w-xl p-0 shadow-2xl border-white/80 bg-white/95 backdrop-blur-xl animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col ring-1 ring-black/5 relative">
             <div className="px-8 py-6 border-b border-slate-200/60 bg-white/50 backdrop-blur-md flex justify-between items-center">
@@ -2054,7 +2283,7 @@ function UserManagementPageContent() {
       )}
 
       {isMemberEditModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm transition-all duration-300">
           <div className="absolute inset-0" onClick={() => setIsMemberEditModalOpen(false)} />
           <GlassCard className="w-full max-w-4xl p-0 shadow-2xl border-white/80 bg-white/95 backdrop-blur-xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-hidden flex flex-col ring-1 ring-black/5 relative">
             <div className="px-8 py-6 border-b border-slate-200/60 bg-white/50 backdrop-blur-md flex justify-between items-center sticky top-0 z-20">
@@ -2101,7 +2330,8 @@ function UserManagementPageContent() {
                           className="w-full glass-input pl-10 pr-4 py-2.5"
                           placeholder="Member full name"
                           value={editingMemberDraft.fullName}
-                          onChange={(e) => setEditingMemberDraft((prev) => ({ ...prev, fullName: normalizeName(e.target.value) }))}
+                          onChange={(e) => setEditingMemberDraft((prev) => ({ ...prev, fullName: e.target.value }))}
+                          onBlur={() => setEditingMemberDraft((prev) => ({ ...prev, fullName: normalizeName(prev.fullName) }))}
                         />
                         <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                       </div>
@@ -2543,7 +2773,14 @@ function UserManagementPageContent() {
                                     onChange={(e) =>
                                       setEditingDependents((prev) =>
                                         prev.map((item, i) =>
-                                          i === index ? { ...item, fullName: normalizeName(e.target.value) } : item
+                                          i === index ? { ...item, fullName: e.target.value } : item
+                                        )
+                                      )
+                                    }
+                                    onBlur={() =>
+                                      setEditingDependents((prev) =>
+                                        prev.map((item, i) =>
+                                          i === index ? { ...item, fullName: normalizeName(item.fullName) } : item
                                         )
                                       )
                                     }
@@ -2730,8 +2967,8 @@ function UserManagementPageContent() {
         </div>
       )}
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
+      {canOperateUsersPage && isModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm transition-all duration-300">
           <div className="absolute inset-0" onClick={() => setIsModalOpen(false)} />
           <GlassCard className="w-full max-w-4xl p-0 shadow-2xl border-white/80 bg-white/95 backdrop-blur-xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-hidden flex flex-col ring-1 ring-black/5 relative">
             
@@ -2783,7 +3020,8 @@ function UserManagementPageContent() {
                           className="w-full glass-input pl-10 pr-4 py-2.5"
                           placeholder="Admin Name"
                           value={newAdminForm.fullName}
-                          onChange={(e) => setNewAdminForm((prev) => ({ ...prev, fullName: normalizeName(e.target.value) }))}
+                          onChange={(e) => setNewAdminForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                          onBlur={() => setNewAdminForm((prev) => ({ ...prev, fullName: normalizeName(prev.fullName) }))}
                         />
                         <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                       </div>
@@ -2879,38 +3117,11 @@ function UserManagementPageContent() {
                           className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
                           required
                           value={newAdminForm.role}
-                          onChange={(e) => setNewAdminForm((prev) => ({ ...prev, role: e.target.value as "super_admin" | "admin" | "staff" }))}
+                          onChange={(e) => setNewAdminForm((prev) => ({ ...prev, role: e.target.value as AdminRole }))}
                         >
                           <option value="super_admin">Super Admin</option>
                           <option value="admin">Admin</option>
-                          <option value="staff">Staff</option>
-                        </select>
-                        <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-medium text-slate-700">Position</label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          className="w-full glass-input pl-10 pr-4 py-2.5"
-                          placeholder="Operations Lead"
-                          value={newAdminForm.position}
-                          onChange={(e) => setNewAdminForm((prev) => ({ ...prev, position: e.target.value }))}
-                        />
-                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-medium text-slate-700">Tier</label>
-                      <div className="relative">
-                        <select
-                          className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
-                          value={newAdminForm.tier}
-                          onChange={(e) => setNewAdminForm((prev) => ({ ...prev, tier: e.target.value as "Tier 1" | "Tier 2" }))}
-                        >
-                          <option value="Tier 1">Tier 1</option>
-                          <option value="Tier 2">Tier 2</option>
+                          <option value="accountant">Accountant</option>
                         </select>
                         <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                       </div>
@@ -2957,6 +3168,35 @@ function UserManagementPageContent() {
         </div>
       )}
 
+      {pendingAdminDeletion && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-sm">
+          <div className="absolute inset-0" onClick={() => setPendingAdminDeletion(null)} />
+          <GlassCard className="relative w-full max-w-md border-white/80 bg-white/95 shadow-2xl">
+            <div className="space-y-3">
+              <h2 className="text-xl font-bold text-slate-800">Delete Admin Account?</h2>
+              <p className="text-sm text-slate-600">
+                {pendingAdminDeletion.adminId} will lose console access permanently. This action cannot be undone.
+              </p>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <GlassButton
+                variant="secondary"
+                onClick={() => setPendingAdminDeletion(null)}
+                className="px-5 hover:bg-slate-200 border-slate-300"
+              >
+                Cancel
+              </GlassButton>
+              <GlassButton
+                onClick={() => void confirmDeleteAdminMember()}
+                className="px-5 bg-rose-600 hover:bg-rose-700 text-white border-transparent shadow-none"
+              >
+                Delete Account
+              </GlassButton>
+            </div>
+          </GlassCard>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -2966,14 +3206,5 @@ export default function UserManagementPage() {
     <Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading users...</div>}>
       <UserManagementPageContent />
     </Suspense>
-  );
-}
-
-// Subcomponent for role icon
-function UserCog({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v1"/><path d="M19 12v1"/><path d="M21 10h-1"/><path d="M17 10h-1"/>
-    </svg>
   );
 }

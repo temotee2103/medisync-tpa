@@ -1,6 +1,10 @@
+import { withBasePath } from "@/lib/basePath";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
 export type Company = {
   companyId: string;
   name: string;
+  hrName: string;
   registrationNoNew: string;
   registrationNoOld?: string;
   tinNumber?: string;
@@ -9,7 +13,9 @@ export type Company = {
   ssmExpiryDate?: string;
   industry: string;
   contactEmail: string;
+  contactPhoneName?: string;
   contactPhone: string;
+  contactPhoneSecondaryName?: string;
   contactPhoneSecondary?: string;
   addressLine1?: string;
   addressLine2?: string;
@@ -19,9 +25,6 @@ export type Company = {
   status: "Active" | "Disabled";
   planConfig: CompanyPlanConfig;
 };
-
-const COMPANY_KEY = "company_directory";
-const COMPANY_SEEDED_KEY = "company_seeded";
 
 export type CompanyPlanType = "lump_sum" | "category";
 
@@ -104,79 +107,120 @@ export const normalizeCompanyPlanConfig = (planConfig?: Partial<CompanyPlanConfi
   };
 };
 
-export const ensureCompanySeed = () => {
+type CompanyDbRow = {
+  company_id: string;
+  name: string;
+  hr_name: string | null;
+  status: string | null;
+  registration_no: string | null;
+  registration_no_old: string | null;
+  tin_number: string | null;
+  sst_number: string | null;
+  ssm_file_name: string | null;
+  ssm_expiry_date: string | null;
+  industry: string | null;
+  contact_email: string | null;
+  contact_phone_name: string | null;
+  contact_phone: string | null;
+  contact_phone_secondary_name: string | null;
+  contact_phone_secondary: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  plan_config: unknown;
+};
+
+let companiesSnapshot: Company[] = [];
+let companiesInitialized = false;
+const companiesListeners = new Set<() => void>();
+const COMPANIES_SERVER_SNAPSHOT: Company[] = [];
+
+const notifyCompaniesListeners = () => {
+  companiesListeners.forEach((listener) => listener());
+};
+
+const mapCompanyDbRow = (row: CompanyDbRow): Company => ({
+  companyId: String(row.company_id || ""),
+  name: String(row.name || ""),
+  hrName: String(row.hr_name || ""),
+  registrationNoNew: String(row.registration_no || ""),
+  registrationNoOld: String(row.registration_no_old || ""),
+  tinNumber: String(row.tin_number || ""),
+  sstNumber: String(row.sst_number || ""),
+  ssmFileName: String(row.ssm_file_name || ""),
+  ssmExpiryDate: row.ssm_expiry_date ? String(row.ssm_expiry_date) : "",
+  industry: String(row.industry || ""),
+  contactEmail: String(row.contact_email || ""),
+  contactPhoneName: String(row.contact_phone_name || ""),
+  contactPhone: String(row.contact_phone || ""),
+  contactPhoneSecondaryName: String(row.contact_phone_secondary_name || ""),
+  contactPhoneSecondary: String(row.contact_phone_secondary || ""),
+  addressLine1: String(row.address_line1 || ""),
+  addressLine2: String(row.address_line2 || ""),
+  city: String(row.city || ""),
+  state: String(row.state || ""),
+  postalCode: String(row.postal_code || ""),
+  status: String(row.status || "").toLowerCase() === "disabled" ? "Disabled" : "Active",
+  planConfig: normalizeCompanyPlanConfig(row.plan_config as Partial<CompanyPlanConfig> | null | undefined),
+});
+
+export const subscribeCompanies = (listener: () => void) => {
+  companiesListeners.add(listener);
+  return () => companiesListeners.delete(listener);
+};
+
+export const getCompaniesSnapshot = () => companiesSnapshot;
+
+export const getCompaniesServerSnapshot = () => COMPANIES_SERVER_SNAPSHOT;
+
+export const refreshCompaniesSnapshot = async () => {
   if (typeof window === "undefined") return;
-  if (!localStorage.getItem(COMPANY_SEEDED_KEY)) {
-    const companies: Company[] = [
-      {
-        companyId: "CMP-001",
-        name: "TechCorp Malaysia",
-        registrationNoNew: "202301001234",
-        registrationNoOld: "",
-        tinNumber: "C20892054010",
-        sstNumber: "B16-2001-12000001",
-        ssmFileName: "techcorp-ssm.pdf",
-        ssmExpiryDate: "2027-12-31",
-        industry: "Technology / Software",
-        contactEmail: "hr@techcorp.com",
-        contactPhone: "+603-2100 8888",
-        contactPhoneSecondary: "",
-        addressLine1: "No. 12, Jalan Integrasi",
-        addressLine2: "KL Eco City",
-        city: "Kuala Lumpur",
-        state: "Wilayah Persekutuan",
-        postalCode: "59200",
-        status: "Active",
-        planConfig: createDefaultPlanConfig(),
-      },
-      {
-        companyId: "CMP-002",
-        name: "LogiTrans Global",
-        registrationNoNew: "201901009876",
-        registrationNoOld: "",
-        tinNumber: "C20892388110",
-        sstNumber: "B16-2001-13000077",
-        ssmFileName: "logitrans-ssm.pdf",
-        ssmExpiryDate: "2028-06-30",
-        industry: "Logistics",
-        contactEmail: "people@logitrans.com",
-        contactPhone: "+603-2788 9911",
-        contactPhoneSecondary: "",
-        addressLine1: "Lot 8, Jalan Perusahaan",
-        addressLine2: "Bukit Raja",
-        city: "Shah Alam",
-        state: "Selangor",
-        postalCode: "40150",
-        status: "Active",
-        planConfig: createDefaultPlanConfig(),
-      },
-    ];
-    localStorage.setItem(COMPANY_KEY, JSON.stringify(companies));
-    localStorage.setItem(COMPANY_SEEDED_KEY, "true");
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const { data, error } = await supabase
+      .from("companies")
+      .select(
+        "company_id, name, hr_name, status, registration_no, registration_no_old, tin_number, sst_number, ssm_file_name, ssm_expiry_date, industry, contact_email, contact_phone_name, contact_phone, contact_phone_secondary_name, contact_phone_secondary, address_line1, address_line2, city, state, postal_code, plan_config"
+      )
+      .order("company_id");
+    if (error) throw error;
+    companiesSnapshot = ((data as CompanyDbRow[] | null) || []).map(mapCompanyDbRow);
+  } catch {
+    companiesSnapshot = [];
+  } finally {
+    notifyCompaniesListeners();
   }
 };
 
-export const getCompanies = () => {
-  if (typeof window === "undefined") return [];
-  const raw = localStorage.getItem(COMPANY_KEY);
-  const companies = raw ? (JSON.parse(raw) as Company[]) : [];
-  return companies.map((company) => ({
-    ...company,
-    registrationNoNew:
-      company.registrationNoNew || (company as unknown as { registrationNo?: string }).registrationNo || "",
-    planConfig: normalizeCompanyPlanConfig(company.planConfig),
-  }));
+export const ensureCompaniesStore = () => {
+  if (typeof window === "undefined") return;
+  if (companiesInitialized) return;
+  companiesInitialized = true;
+  void refreshCompaniesSnapshot();
 };
 
-export const saveCompany = (company: Company) => {
-  if (typeof window === "undefined") return;
-  const companies = getCompanies().filter((entry) => entry.companyId !== company.companyId);
-  companies.push(company);
-  localStorage.setItem(COMPANY_KEY, JSON.stringify(companies));
+export const resetCompaniesStore = () => {
+  companiesSnapshot = [];
+  companiesInitialized = false;
+  notifyCompaniesListeners();
 };
 
-export const deleteCompany = (companyId: string) => {
-  if (typeof window === "undefined") return;
-  const companies = getCompanies().filter((entry) => entry.companyId !== companyId);
-  localStorage.setItem(COMPANY_KEY, JSON.stringify(companies));
+export const upsertCompany = async (company: Company) => {
+  const res = await fetch(withBasePath("/api/admin/companies/upsert"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(company),
+  });
+  const payload = (await res.json()) as { error?: string };
+  if (!res.ok) throw new Error(payload.error || "Failed to save company.");
+  await refreshCompaniesSnapshot();
+};
+
+export const deleteCompanyByCompanyId = async (companyId: string) => {
+  const supabase = createSupabaseBrowserClient();
+  const { error } = await supabase.from("companies").delete().eq("company_id", companyId);
+  if (error) throw error;
+  await refreshCompaniesSnapshot();
 };

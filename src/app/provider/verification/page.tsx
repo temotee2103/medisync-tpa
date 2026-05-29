@@ -11,31 +11,52 @@ import {
   AlertCircle,
   QrCode
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { downloadText } from "@/lib/download";
 import Link from "next/link";
-import { ensureCompanySeed } from "@/lib/companyStore";
-import { ensureMemberSeed } from "@/lib/memberSession";
+import { ensureCompaniesStore, getCompaniesServerSnapshot, getCompaniesSnapshot, subscribeCompanies } from "@/lib/companyStore";
+import {
+  ensureMemberSeed,
+  getMemberDirectoryServerSnapshot,
+  getMemberDirectorySnapshot,
+  subscribeMemberDirectory,
+} from "@/lib/memberSession";
 import { formatCurrency, formatDateDisplay } from "@/lib/formats";
 import type { ResolvedMemberPlan } from "@/lib/memberPlan";
 import {
   buildEligibilityResult,
   findMemberByPayload,
-  type ProviderEligibilityResult,
 } from "@/lib/providerVerification";
 
 export default function MemberVerificationPage() {
   const [memberId, setMemberId] = useState("");
   const [searchMode, setSearchMode] = useState<"manual" | "qr">("manual");
-  const [verificationResult, setVerificationResult] = useState<ProviderEligibilityResult | null>(null);
+  const [searchPayload, setSearchPayload] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState("");
+  const memberDirectory = useSyncExternalStore(
+    subscribeMemberDirectory,
+    getMemberDirectorySnapshot,
+    getMemberDirectoryServerSnapshot
+  );
+  const companies = useSyncExternalStore(subscribeCompanies, getCompaniesSnapshot, getCompaniesServerSnapshot);
 
   useEffect(() => {
     ensureMemberSeed();
-    ensureCompanySeed();
+    ensureCompaniesStore();
   }, []);
+
+  const verificationResult = useMemo(() => {
+    void memberDirectory;
+    if (!searchPayload.trim()) return null;
+    const member = findMemberByPayload(searchPayload);
+    if (!member) return null;
+    return buildEligibilityResult(member, companies);
+  }, [companies, memberDirectory, searchPayload]);
+  const lookupFeedback =
+    error || (!isSearching && hasSearched && !verificationResult ? "Member record not found." : "");
 
   const planSummary = useMemo(() => {
     if (!verificationResult) return "";
@@ -53,25 +74,26 @@ export default function MemberVerificationPage() {
       .join(" • ");
   }, [verificationResult]);
 
-  const runLookup = (payload: string) => {
-    setIsSearching(true);
-    setError("");
-
-    const member = findMemberByPayload(payload);
-    if (!member) {
-      setVerificationResult(null);
-      setError("Member record not found.");
-      setIsSearching(false);
+  const runLookup = async (payload: string) => {
+    const normalizedPayload = payload.trim();
+    if (!normalizedPayload) {
+      setHasSearched(false);
+      setSearchPayload("");
+      setError("Please enter Staff ID, NRIC, or Passport No.");
       return;
     }
 
-    setVerificationResult(buildEligibilityResult(member));
+    setIsSearching(true);
+    setError("");
+    setHasSearched(true);
+    setSearchPayload(normalizedPayload);
+    await ensureMemberSeed();
     setIsSearching(false);
   };
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    runLookup(memberId);
+    await runLookup(memberId);
   };
 
   return (
@@ -116,10 +138,10 @@ export default function MemberVerificationPage() {
 
             {searchMode === "manual" ? (
               <form onSubmit={handleSearch} className="flex flex-col gap-4 animate-in fade-in slide-in-from-left-4">
-                {error && (
+                {lookupFeedback && (
                   <div className="bg-red-50 text-red-600 text-xs p-3 rounded-lg flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
-                    {error}
+                    {lookupFeedback}
                   </div>
                 )}
                 <div className="w-full space-y-2">
@@ -141,16 +163,16 @@ export default function MemberVerificationPage() {
               </form>
             ) : (
               <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50/50 animate-in fade-in slide-in-from-right-4">
-                {error && (
+                {lookupFeedback && (
                   <div className="w-full max-w-md mb-6 bg-red-50 text-red-600 text-xs p-3 rounded-lg flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
-                    {error}
+                    {lookupFeedback}
                   </div>
                 )}
                 <div className="w-full max-w-[16rem] aspect-square bg-slate-200 rounded-xl flex items-center justify-center relative overflow-hidden group cursor-pointer" onClick={() => {
-                  const demoPayload = memberId.trim() || "MEM-8823-01";
+                  const demoPayload = memberId.trim();
                   setMemberId(demoPayload);
-                  runLookup(demoPayload);
+                  void runLookup(demoPayload);
                 }}>
                   <QrCode className="w-16 h-16 text-slate-400" />
                   <div className="absolute inset-0 bg-black/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">

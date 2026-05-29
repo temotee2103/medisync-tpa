@@ -12,6 +12,7 @@ import {
   Briefcase,
   ShieldCheck,
   Download,
+  Upload,
   User,
   Pencil,
   UserPlus,
@@ -21,53 +22,103 @@ import {
   Calendar,
   XCircle
 } from "lucide-react";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Company,
   createDefaultPlanConfig,
-  deleteCompany,
-  ensureCompanySeed,
-  getCompanies,
-  saveCompany,
+  normalizeCompanyPlanConfig,
   type CompanyPlanCategoryKey,
+  type CompanyPlanConfig,
   type CompanyPlanType,
 } from "@/lib/companyStore";
-import {
-  ensureMemberSeed,
-  getMembersByCompany,
-  removeMembersByCompany,
-  saveMemberAccount,
-  saveMemberDirectoryEntry,
-} from "@/lib/memberSession";
-import { sha256 } from "@/lib/hash";
+import { downloadMemberImportTemplate } from "@/lib/memberImport/template";
+import { parseMemberImportWorkbook } from "@/lib/memberImport/parser";
+import { validateImportRows } from "@/lib/memberImport/validation";
+import type { ImportRowResult } from "@/lib/memberImport/types";
+import type { MemberDirectoryEntry } from "@/lib/memberSession";
 import { downloadText } from "@/lib/download";
-import { getAdminSession } from "@/lib/adminSession";
-import { buildAddressLine, formatPhoneForDisplay, normalizeName, normalizePhone, validateDependentPassport } from "@/lib/formats";
+import { validateFamilyRelationshipCaps } from "@/lib/familyRelationshipRules";
+import { buildAddressLine, formatPhoneForDisplay, normalizeName, validateDependentPassport } from "@/lib/formats";
+import { isValidPhone, normalizePhoneInput } from "@/lib/phoneValidation";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { withBasePath } from "@/lib/basePath";
+import { fetchAdminSession, type AdminRole } from "@/lib/adminSession";
+import { canDeleteAdminResource, canOperateAdminPage, isAdminReadOnly } from "@/lib/adminPermissions";
 
-const EMPTY_COMPANIES: Company[] = [];
-let companySnapshot: Company[] | null = null;
-const companyListeners = new Set<() => void>();
 const TODAY_KEY = new Date().toISOString().slice(0, 10);
 
-const getCompanySnapshot = () => {
-  if (typeof window === "undefined") return EMPTY_COMPANIES;
-  if (companySnapshot) return companySnapshot;
-  ensureCompanySeed();
-  ensureMemberSeed();
-  companySnapshot = getCompanies();
-  return companySnapshot;
+const normalizeSupabaseErrorMessage = (error: unknown, fallback: string) => {
+  const message = error instanceof Error ? error.message : fallback;
+  return message.includes("Missing environment variable")
+    ? "Supabase environment variables are not set. Please configure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY."
+    : message;
 };
 
-const subscribeCompanyStore = (listener: () => void) => {
-  companyListeners.add(listener);
-  return () => companyListeners.delete(listener);
+const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+type CompanyDbRow = {
+  id: string;
+  company_id: string;
+  name: string;
+  hr_name: string | null;
+  status: string | null;
+  registration_no: string | null;
+  registration_no_old: string | null;
+  tin_number: string | null;
+  sst_number: string | null;
+  ssm_file_name: string | null;
+  ssm_expiry_date: string | null;
+  industry: string | null;
+  contact_email: string | null;
+  contact_phone_name: string | null;
+  contact_phone: string | null;
+  contact_phone_secondary_name: string | null;
+  contact_phone_secondary: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  plan_config: unknown;
 };
 
-const refreshCompanySnapshot = () => {
-  if (typeof window === "undefined") return;
-  companySnapshot = getCompanies();
-  companyListeners.forEach((listener) => listener());
+type MemberDbRow = {
+  staff_id: string;
+  full_name: string | null;
+  email: string | null;
+  status: string | null;
+  phone: string | null;
+  passport_expiry: string | null;
+  nationality: string | null;
+  nric_passport: string | null;
+  gender: string | null;
+  relationship: string | null;
+};
+
+type BulkImportMemberRow = {
+  rowNumber: number;
+  type: "primary" | "dependent";
+  staffId: string;
+  parentStaffId?: string;
+  relationship?: string;
+  fullName: string;
+  gender: string;
+  idType: string;
+  nricPassport: string;
+  nationality: string;
+  status: string;
+  phoneCountryCode: string;
+  phone: string;
+  dob: string;
+  passportExpiry: string;
+  passportFileName: string;
+  email?: string;
+  tempPassword?: string;
+  planType: string;
+  lumpSumLimit: string;
+  categoryEnabled: Record<string, string>;
+  categoryLimits: Record<string, string>;
 };
 
 const NATIONALITIES = [
@@ -396,6 +447,7 @@ const createEmptyMemberForm = (company: Company | null): MemberFormDraft => ({
 const createEmptyCompanyForm = (): Company => ({
   companyId: "",
   name: "",
+  hrName: "",
   registrationNoNew: "",
   registrationNoOld: "",
   tinNumber: "",
@@ -404,7 +456,9 @@ const createEmptyCompanyForm = (): Company => ({
   ssmExpiryDate: "",
   industry: "",
   contactEmail: "",
+  contactPhoneName: "",
   contactPhone: "",
+  contactPhoneSecondaryName: "",
   contactPhoneSecondary: "",
   addressLine1: "",
   addressLine2: "",
@@ -427,36 +481,173 @@ const inferDobFromNric = (nricPassport: string) => {
 
 export default function AdminCompanyManagementPage() {
   const router = useRouter();
-  const logAdminAction = (action: string) => {
-    if (typeof window === "undefined") return;
-    const logs = JSON.parse(localStorage.getItem("admin_audit_logs") || "[]");
-    logs.push({ action, createdAt: new Date().toISOString() });
-    localStorage.setItem("admin_audit_logs", JSON.stringify(logs));
-  };
-  const companies = useSyncExternalStore(
-    subscribeCompanyStore,
-    getCompanySnapshot,
-    () => EMPTY_COMPANIES
-  );
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [companyUuidByCode, setCompanyUuidByCode] = useState<Record<string, string>>({});
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [companyModalView, setCompanyModalView] = useState<"details" | "info">("details");
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
+  const [bulkImportError, setBulkImportError] = useState("");
+  const [bulkImportPreview, setBulkImportPreview] = useState<ImportRowResult[]>([]);
+  const [bulkImportIsSubmitting, setBulkImportIsSubmitting] = useState(false);
+  const [remoteMemberStats, setRemoteMemberStats] = useState<{
+    total: number;
+    active: number;
+    inactive: number;
+    expired: number;
+  } | null>(null);
+  const [remoteMemberStatsError, setRemoteMemberStatsError] = useState("");
   const [companyForm, setCompanyForm] = useState<Company>(createEmptyCompanyForm);
-  const adminRole = useSyncExternalStore(
-    (onStoreChange) => {
-      if (typeof window === "undefined") return () => {};
-      window.addEventListener("storage", onStoreChange);
-      return () => window.removeEventListener("storage", onStoreChange);
-    },
-    () => getAdminSession()?.role ?? "staff",
-    () => "staff"
-  );
-  const isSuperAdmin = adminRole === "super_admin";
+  const [companyFormError, setCompanyFormError] = useState("");
+  const [adminRole, setAdminRole] = useState<AdminRole | null>(null);
+  const [adminRoleResolved, setAdminRoleResolved] = useState(false);
+  const resolvedAdminRole = adminRole ?? "accountant";
+  const canOperateCompanies = adminRoleResolved
+    ? canOperateAdminPage(resolvedAdminRole, "/admin/companies")
+    : false;
+  const canDeleteCompanies = adminRoleResolved ? canDeleteAdminResource(resolvedAdminRole) : false;
+  const isCompanyReadOnly = adminRoleResolved
+    ? isAdminReadOnly(resolvedAdminRole, "/admin/companies")
+    : false;
+  const isCompanyAccessPending = !adminRoleResolved;
+  const disableCompanyEditing = isCompanyAccessPending || isCompanyReadOnly;
   const [memberForm, setMemberForm] = useState<MemberFormDraft>(() => createEmptyMemberForm(null));
   const [memberFormError, setMemberFormError] = useState("");
+  const [members, setMembers] = useState<MemberDirectoryEntry[]>([]);
+  const [totalMembersCount, setTotalMembersCount] = useState(0);
+
+  const logAdminAction = async (action: string, entityType?: string, entityId?: string) => {
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data } = await supabase.auth.getSession();
+      const actorProfileId = data.session?.user.id || null;
+      await supabase.from("admin_audit_logs").insert([
+        {
+          action,
+          actor_profile_id: actorProfileId,
+          entity_type: entityType || null,
+          entity_id: entityId || null,
+        },
+      ]);
+    } catch {
+      return;
+    }
+  };
+
+  const loadCompanies = useCallback(async () => {
+    try {
+      const supabase = createSupabaseBrowserClient();
+
+      const [{ data: companyRows, error: companyError }, { count: memberCount }] = await Promise.all([
+        supabase
+          .from("companies")
+          .select(
+            "id, company_id, name, hr_name, status, registration_no, registration_no_old, tin_number, sst_number, ssm_file_name, ssm_expiry_date, industry, contact_email, contact_phone_name, contact_phone, contact_phone_secondary_name, contact_phone_secondary, address_line1, address_line2, city, state, postal_code, plan_config"
+          )
+          .order("company_id"),
+        supabase.from("members").select("id", { count: "exact", head: true }),
+      ]);
+
+      if (companyError) throw companyError;
+
+      const uuidMap: Record<string, string> = {};
+      const mapped = (companyRows || []).map((row: CompanyDbRow) => {
+        uuidMap[String(row.company_id)] = String(row.id);
+        return {
+          companyId: String(row.company_id),
+          name: String(row.name || ""),
+          hrName: String(row.hr_name || ""),
+          registrationNoNew: String(row.registration_no || ""),
+          registrationNoOld: String(row.registration_no_old || ""),
+          tinNumber: String(row.tin_number || ""),
+          sstNumber: String(row.sst_number || ""),
+          ssmFileName: String(row.ssm_file_name || ""),
+          ssmExpiryDate: row.ssm_expiry_date ? String(row.ssm_expiry_date) : "",
+          industry: String(row.industry || ""),
+          contactEmail: String(row.contact_email || ""),
+          contactPhoneName: String(row.contact_phone_name || ""),
+          contactPhone: String(row.contact_phone || ""),
+          contactPhoneSecondaryName: String(row.contact_phone_secondary_name || ""),
+          contactPhoneSecondary: String(row.contact_phone_secondary || ""),
+          addressLine1: String(row.address_line1 || ""),
+          addressLine2: String(row.address_line2 || ""),
+          city: String(row.city || ""),
+          state: String(row.state || ""),
+          postalCode: String(row.postal_code || ""),
+          status: String(row.status || "").toLowerCase() === "disabled" ? "Disabled" : "Active",
+          planConfig: normalizeCompanyPlanConfig(row.plan_config as Partial<CompanyPlanConfig> | null | undefined),
+        } satisfies Company;
+      });
+
+      setCompanyUuidByCode(uuidMap);
+      setCompanies(mapped);
+      setTotalMembersCount(Number(memberCount || 0));
+    } catch {
+      setCompanies([]);
+      setCompanyUuidByCode({});
+      setTotalMembersCount(0);
+    }
+  }, []);
+
+  const loadMembersForCompany = useCallback(async (companyCode: string) => {
+    const companyUuid = companyUuidByCode[companyCode] || "";
+    if (!companyUuid) {
+      setMembers([]);
+      return;
+    }
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data, error } = await supabase
+        .from("members")
+        .select("staff_id, full_name, email, status, phone, passport_expiry, nationality, nric_passport, gender, relationship")
+        .eq("company_id", companyUuid)
+        .order("staff_id");
+      if (error) throw error;
+
+      setMembers(
+        (data as MemberDbRow[] | null || []).map((row) => ({
+          companyId: companyCode,
+          staffId: String(row.staff_id),
+          fullName: String(row.full_name || ""),
+          email: String(row.email || ""),
+          status: String(row.status || "").toLowerCase() === "disabled" ? "Disabled" : "Active",
+          phone: row.phone ? String(row.phone) : undefined,
+          passportExpiry: row.passport_expiry ? String(row.passport_expiry) : undefined,
+          nationality: row.nationality ? String(row.nationality) : undefined,
+          nricPassport: row.nric_passport ? String(row.nric_passport) : undefined,
+          gender: row.gender ? (String(row.gender) as MemberDirectoryEntry["gender"]) : undefined,
+          relationship: row.relationship ? (String(row.relationship) as MemberDirectoryEntry["relationship"]) : undefined,
+        }))
+      );
+    } catch {
+      setMembers([]);
+    }
+  }, [companyUuidByCode]);
+
+  useEffect(() => {
+    loadCompanies();
+  }, [loadCompanies]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const session = await fetchAdminSession();
+        if (!cancelled) setAdminRole(session?.role ?? "accountant");
+      } catch {
+        if (!cancelled) setAdminRole("accountant");
+      } finally {
+        if (!cancelled) setAdminRoleResolved(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
 
   const filteredCompanies = useMemo(() => {
@@ -480,10 +671,10 @@ export default function AdminCompanyManagementPage() {
     return companies.find((company) => company.companyId === activeCompanyId) || null;
   }, [companies, activeCompanyId]);
 
-  const members = useMemo(() => {
-    if (!activeCompanyId) return [];
-    return getMembersByCompany(activeCompanyId);
-  }, [activeCompanyId]);
+  useEffect(() => {
+    if (!activeCompanyId) return;
+    loadMembersForCompany(activeCompanyId);
+  }, [activeCompanyId, loadMembersForCompany]);
 
   const memberStats = useMemo(() => {
     const total = members.length;
@@ -496,19 +687,147 @@ export default function AdminCompanyManagementPage() {
     }).length;
     return { total, active, inactive, expired };
   }, [members]);
+  const effectiveMemberStats = remoteMemberStats || memberStats;
   const companyStats = useMemo(() => {
     const total = companies.length;
     const active = companies.filter((company) => company.status === "Active").length;
-    const totalMembers = companies.reduce((sum, company) => {
-      return sum + getMembersByCompany(company.companyId).length;
-    }, 0);
-    return { total, active, inactive: total - active, totalMembers };
-  }, [companies]);
+    return { total, active, inactive: total - active, totalMembers: totalMembersCount };
+  }, [companies, totalMembersCount]);
+
+  const refreshRemoteMemberStats = useCallback(async (companyCode: string) => {
+    if (!companyCode) return;
+    setRemoteMemberStatsError("");
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data: companyRow, error: companyError } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("company_id", companyCode)
+        .maybeSingle();
+      if (companyError) throw companyError;
+      if (!companyRow?.id) {
+        setRemoteMemberStats(null);
+        return;
+      }
+
+      const companyId = companyRow.id as string;
+      const [{ count: total }, { count: active }, { count: expired }] = await Promise.all([
+        supabase.from("members").select("id", { count: "exact", head: true }).eq("company_id", companyId),
+        supabase.from("members").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "active"),
+        supabase
+          .from("members")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", companyId)
+          .lt("passport_expiry", TODAY_KEY),
+      ]);
+
+      const totalCount = Number(total || 0);
+      const activeCount = Number(active || 0);
+      const expiredCount = Number(expired || 0);
+      setRemoteMemberStats({
+        total: totalCount,
+        active: activeCount,
+        inactive: Math.max(totalCount - activeCount, 0),
+        expired: expiredCount,
+      });
+    } catch (error) {
+      setRemoteMemberStats(null);
+      setRemoteMemberStatsError(normalizeSupabaseErrorMessage(error, "Failed to load member stats."));
+    }
+  }, []);
+
+  const upsertCompanyToSupabase = async (company: Company) => {
+    const res = await fetch(withBasePath("/api/admin/companies/upsert"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(company),
+    });
+    const payload = (await res.json()) as { error?: string };
+    if (!res.ok) throw new Error(payload.error || "Failed to save company.");
+  };
 
   const updateSelectedCompany = (updated: Company) => {
-    saveCompany(updated);
-    refreshCompanySnapshot();
-    logAdminAction(`Updated company plan config: ${updated.companyId}`);
+    if (!canOperateCompanies) return;
+    setCompanies((prev) => prev.map((entry) => (entry.companyId === updated.companyId ? updated : entry)));
+    void upsertCompanyToSupabase(updated);
+    void logAdminAction(`Updated company plan config: ${updated.companyId}`, "companies", updated.companyId);
+  };
+
+  useEffect(() => {
+    if (!activeCompanyId) return;
+    refreshRemoteMemberStats(activeCompanyId);
+  }, [activeCompanyId, refreshRemoteMemberStats]);
+
+  const closeBulkImport = () => {
+    setIsBulkImportOpen(false);
+    setBulkImportFile(null);
+    setBulkImportError("");
+    setBulkImportPreview([]);
+    setBulkImportIsSubmitting(false);
+  };
+
+  const bulkImportStats = useMemo(() => {
+    const ok = bulkImportPreview.filter((row) => row.status === "ok").length;
+    const error = bulkImportPreview.filter((row) => row.status === "error").length;
+    return { ok, error };
+  }, [bulkImportPreview]);
+
+  const handleDownloadMemberTemplate = () => {
+    if (!selectedCompany) return;
+    downloadMemberImportTemplate(selectedCompany);
+  };
+
+  const handleBulkImportFile = async (file: File) => {
+    if (!selectedCompany) return;
+    setBulkImportFile(file);
+    setBulkImportError("");
+    try {
+      const rows = await parseMemberImportWorkbook(file, selectedCompany);
+      const preview = validateImportRows(selectedCompany, rows);
+      setBulkImportPreview(preview);
+    } catch (error) {
+      setBulkImportPreview([]);
+      setBulkImportError(error instanceof Error ? error.message : "Failed to parse file.");
+    }
+  };
+
+  const confirmBulkImport = async () => {
+    if (disableCompanyEditing) return;
+    if (!selectedCompany || !bulkImportFile) return;
+    const hasErrors = bulkImportPreview.some((row) => row.status === "error");
+    if (hasErrors) {
+      setBulkImportError("Fix Excel errors before importing.");
+      return;
+    }
+    const okRows = bulkImportPreview
+      .filter((row): row is Extract<ImportRowResult, { status: "ok" }> => row.status === "ok")
+      .map((row) => row.row);
+    if (okRows.length === 0) {
+      setBulkImportError("No valid rows to import.");
+      return;
+    }
+
+    setBulkImportIsSubmitting(true);
+    setBulkImportError("");
+    try {
+      await upsertCompanyToSupabase(selectedCompany);
+      const res = await fetch(withBasePath("/api/admin/members/bulk-import"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: selectedCompany.companyId, mode: "upsert", rows: okRows }),
+      });
+      const payload = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || "Bulk import failed.");
+      await logAdminAction(`Bulk imported members into ${selectedCompany.companyId}`, "companies", selectedCompany.companyId);
+      await refreshRemoteMemberStats(selectedCompany.companyId);
+      await loadMembersForCompany(selectedCompany.companyId);
+      await loadCompanies();
+      closeBulkImport();
+    } catch (error) {
+      setBulkImportError(normalizeSupabaseErrorMessage(error, "Bulk import failed."));
+    } finally {
+      setBulkImportIsSubmitting(false);
+    }
   };
 
   return (
@@ -520,15 +839,17 @@ export default function AdminCompanyManagementPage() {
         </div>
         <GlassButton
           className="gap-2"
+          disabled={disableCompanyEditing}
           onClick={() => {
             setEditingCompanyId(null);
             setCompanyModalView("details");
             setCompanyForm(createEmptyCompanyForm());
+            setCompanyFormError("");
             setIsCompanyModalOpen(true);
           }}
         >
           <Plus className="w-4 h-4" />
-          Add Company
+          {isCompanyAccessPending ? "Checking Access..." : "Add Company"}
         </GlassButton>
       </div>
 
@@ -562,7 +883,7 @@ export default function AdminCompanyManagementPage() {
             onClick={() => router.push("/admin/users?section=corporate&corporateFilter=expired_passport")}
           >
             <p className="text-xs uppercase tracking-widest text-slate-400">Expired Passports</p>
-            <p className="text-2xl font-bold text-amber-700 mt-1">{memberStats.expired}</p>
+            <p className="text-2xl font-bold text-amber-700 mt-1">{effectiveMemberStats.expired}</p>
           </button>
         </div>
       </GlassCard>
@@ -609,6 +930,7 @@ export default function AdminCompanyManagementPage() {
                           setEditingCompanyId(company.companyId);
                           setCompanyModalView("details");
                           setCompanyForm(company);
+                          setCompanyFormError("");
                           setIsCompanyModalOpen(true);
                         }}
                       >
@@ -617,18 +939,22 @@ export default function AdminCompanyManagementPage() {
                       <GlassButton
                         variant="ghost"
                         className="h-9 w-9 p-0 flex items-center justify-center"
-                          title={company.status === "Active" ? "Disable company" : "Activate company"}
-                        onClick={() => {
-                            const nextStatus = company.status === "Active" ? "Disabled" : "Active";
-                            saveCompany({
-                              ...company,
-                              status: nextStatus,
-                            });
-                            if (editingCompanyId === company.companyId) {
-                              setCompanyForm((prev) => ({ ...prev, status: nextStatus }));
-                            }
-                            refreshCompanySnapshot();
-                            logAdminAction(`Changed company status: ${company.companyId} -> ${nextStatus}`);
+                        title={company.status === "Active" ? "Disable company" : "Activate company"}
+                        disabled={disableCompanyEditing}
+                        onClick={async () => {
+                          if (disableCompanyEditing) return;
+                          const nextStatus: Company["status"] = company.status === "Active" ? "Disabled" : "Active";
+                          const updated = { ...company, status: nextStatus };
+                          updateSelectedCompany(updated);
+                          if (editingCompanyId === company.companyId) {
+                            setCompanyForm((prev) => ({ ...prev, status: nextStatus }));
+                          }
+                          await loadCompanies();
+                          await logAdminAction(
+                            `Changed company status: ${company.companyId} -> ${nextStatus}`,
+                            "companies",
+                            company.companyId
+                          );
                         }}
                       >
                           <ShieldCheck className="w-4 h-4" />
@@ -637,6 +963,7 @@ export default function AdminCompanyManagementPage() {
                         variant="ghost"
                         className="h-9 w-9 p-0 flex items-center justify-center"
                         title="Add member"
+                        disabled={disableCompanyEditing}
                         onClick={() => {
                           setSelectedCompanyId(company.companyId);
                           setMemberForm(createEmptyMemberForm(company));
@@ -646,16 +973,40 @@ export default function AdminCompanyManagementPage() {
                       >
                         <UserPlus className="w-4 h-4" />
                       </GlassButton>
-                        {isSuperAdmin && (
+                      <GlassButton
+                        variant="ghost"
+                        className="h-9 w-9 p-0 flex items-center justify-center"
+                        title="Bulk upload members (Excel)"
+                        disabled={disableCompanyEditing}
+                        onClick={() => {
+                          setSelectedCompanyId(company.companyId);
+                          setBulkImportFile(null);
+                          setBulkImportError("");
+                          setBulkImportPreview([]);
+                          setIsBulkImportOpen(true);
+                        }}
+                      >
+                        <Upload className="w-4 h-4" />
+                      </GlassButton>
+                        {canDeleteCompanies && (
                           <GlassButton
                             variant="ghost"
                             className="h-9 w-9 p-0 flex items-center justify-center text-rose-600 hover:text-rose-700"
                             title="Delete company"
-                            onClick={() => {
+                            onClick={async () => {
                               const shouldDelete = window.confirm(`Delete ${company.name} and all its members?`);
                               if (!shouldDelete) return;
-                              deleteCompany(company.companyId);
-                              removeMembersByCompany(company.companyId);
+                              try {
+                                const supabase = createSupabaseBrowserClient();
+                                const { error } = await supabase
+                                  .from("companies")
+                                  .delete()
+                                  .eq("company_id", company.companyId);
+                                if (error) throw error;
+                              } catch (error) {
+                                alert(normalizeSupabaseErrorMessage(error, "Failed to delete company."));
+                                return;
+                              }
                               if (selectedCompanyId === company.companyId) {
                                 setSelectedCompanyId("");
                               }
@@ -664,8 +1015,10 @@ export default function AdminCompanyManagementPage() {
                                 setEditingCompanyId(null);
                                 setCompanyModalView("details");
                               }
-                              refreshCompanySnapshot();
-                              logAdminAction(`Deleted company ${company.companyId}`);
+                              setCompanies((prev) => prev.filter((entry) => entry.companyId !== company.companyId));
+                              setMembers([]);
+                              await loadCompanies();
+                              await logAdminAction(`Deleted company ${company.companyId}`, "companies", company.companyId);
                             }}
                           >
                             <XCircle className="w-4 h-4" />
@@ -686,13 +1039,14 @@ export default function AdminCompanyManagementPage() {
       </GlassCard>
 
       {isCompanyModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm">
           <div
             className="absolute inset-0"
             onClick={() => {
               setIsCompanyModalOpen(false);
               setEditingCompanyId(null);
               setCompanyModalView("details");
+              setCompanyFormError("");
             }}
           />
           <GlassCard className="w-full max-w-4xl p-0 shadow-2xl border-white/80 bg-white/95 backdrop-blur-xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-hidden flex flex-col ring-1 ring-black/5 relative">
@@ -711,6 +1065,7 @@ export default function AdminCompanyManagementPage() {
                   setIsCompanyModalOpen(false);
                   setEditingCompanyId(null);
                   setCompanyModalView("details");
+                  setCompanyFormError("");
                 }}
                 className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
               >
@@ -740,7 +1095,7 @@ export default function AdminCompanyManagementPage() {
 
             <div className="overflow-y-auto p-8 custom-scrollbar">
               {companyModalView === "details" ? (
-                <form className="space-y-8">
+                <fieldset disabled={disableCompanyEditing} className="space-y-8">
                   <section className="space-y-4">
                     <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                       <span className="w-1 h-4 bg-sky-500 rounded-full"/>
@@ -907,6 +1262,19 @@ export default function AdminCompanyManagementPage() {
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">HR Name <span className="text-red-500">*</span></label>
+                        <div className="relative">
+                          <input
+                            className="w-full glass-input pl-10 pr-4 py-2.5"
+                            placeholder="HR representative"
+                            value={companyForm.hrName}
+                            onChange={(e) => setCompanyForm({ ...companyForm, hrName: e.target.value })}
+                            required
+                          />
+                          <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
                         <label className="text-sm font-medium text-slate-700">HR Contact Email</label>
                         <div className="relative">
                           <input
@@ -916,6 +1284,18 @@ export default function AdminCompanyManagementPage() {
                             onChange={(e) => setCompanyForm({ ...companyForm, contactEmail: e.target.value })}
                           />
                           <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">Contact Person Name</label>
+                        <div className="relative">
+                          <input
+                            className="w-full glass-input pl-10 pr-4 py-2.5"
+                            placeholder="Person in charge"
+                            value={companyForm.contactPhoneName || ""}
+                            onChange={(e) => setCompanyForm({ ...companyForm, contactPhoneName: e.target.value })}
+                          />
+                          <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                         </div>
                       </div>
                       <div className="space-y-1.5">
@@ -931,6 +1311,18 @@ export default function AdminCompanyManagementPage() {
                         </div>
                       </div>
                       <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">Second Contact Person Name</label>
+                        <div className="relative">
+                          <input
+                            className="w-full glass-input pl-10 pr-4 py-2.5"
+                            placeholder="Person in charge"
+                            value={companyForm.contactPhoneSecondaryName || ""}
+                            onChange={(e) => setCompanyForm({ ...companyForm, contactPhoneSecondaryName: e.target.value })}
+                          />
+                          <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5 md:col-span-2">
                         <label className="text-sm font-medium text-slate-700">Second Contact Number</label>
                         <div className="relative">
                           <input
@@ -944,7 +1336,7 @@ export default function AdminCompanyManagementPage() {
                       </div>
                     </div>
                   </section>
-                </form>
+                </fieldset>
               ) : selectedCompany ? (
                 <div className="space-y-6">
                   <GlassCard className="p-6 space-y-4">
@@ -958,6 +1350,7 @@ export default function AdminCompanyManagementPage() {
                       </div>
                       <GlassButton
                         className="gap-2"
+                        disabled={disableCompanyEditing}
                         onClick={() => {
                           setMemberForm(createEmptyMemberForm(selectedCompany));
                           setMemberFormError("");
@@ -977,12 +1370,16 @@ export default function AdminCompanyManagementPage() {
                         </div>
                         <div className="flex items-center gap-2 text-slate-600">
                           <Phone className="w-4 h-4 text-slate-400" />
-                          {formatPhoneForDisplay(selectedCompany.contactPhone)}
+                          {selectedCompany.contactPhoneName
+                            ? `${selectedCompany.contactPhoneName} • ${formatPhoneForDisplay(selectedCompany.contactPhone)}`
+                            : formatPhoneForDisplay(selectedCompany.contactPhone)}
                         </div>
                         {selectedCompany.contactPhoneSecondary && (
                           <div className="flex items-center gap-2 text-slate-600">
                             <Phone className="w-4 h-4 text-slate-400" />
-                            {formatPhoneForDisplay(selectedCompany.contactPhoneSecondary)}
+                            {selectedCompany.contactPhoneSecondaryName
+                              ? `${selectedCompany.contactPhoneSecondaryName} • ${formatPhoneForDisplay(selectedCompany.contactPhoneSecondary)}`
+                              : formatPhoneForDisplay(selectedCompany.contactPhoneSecondary)}
                           </div>
                         )}
                       </div>
@@ -996,24 +1393,45 @@ export default function AdminCompanyManagementPage() {
                   <GlassCard className="p-6 space-y-4">
                     <div className="flex items-center justify-between">
                       <h3 className="text-sm font-bold text-slate-800">Members Overview</h3>
-                      <span className="text-xs text-slate-500">{memberStats.total} total</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-slate-500">{effectiveMemberStats.total} total</span>
+                        <GlassButton
+                          variant="secondary"
+                          className="h-9 px-4 text-xs gap-2"
+                          disabled={disableCompanyEditing}
+                          onClick={() => {
+                            setBulkImportFile(null);
+                            setBulkImportError("");
+                            setBulkImportPreview([]);
+                            setIsBulkImportOpen(true);
+                          }}
+                        >
+                          <Upload className="w-4 h-4" />
+                          Bulk Upload
+                        </GlassButton>
+                      </div>
                     </div>
+                    {remoteMemberStatsError && (
+                      <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                        {remoteMemberStatsError}
+                      </div>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div className="glass-card rounded-2xl p-5">
                         <p className="text-xs uppercase tracking-widest text-slate-400">Total Members</p>
-                        <p className="text-3xl font-bold text-slate-800 mt-2">{memberStats.total}</p>
+                        <p className="text-3xl font-bold text-slate-800 mt-2">{effectiveMemberStats.total}</p>
                       </div>
                       <div className="glass-card rounded-2xl p-5">
                         <p className="text-xs uppercase tracking-widest text-slate-400">Active Members</p>
-                        <p className="text-3xl font-bold text-slate-800 mt-2">{memberStats.active}</p>
+                        <p className="text-3xl font-bold text-slate-800 mt-2">{effectiveMemberStats.active}</p>
                       </div>
                       <div className="glass-card rounded-2xl p-5">
                         <p className="text-xs uppercase tracking-widest text-slate-400">Inactive Members</p>
-                        <p className="text-3xl font-bold text-slate-800 mt-2">{memberStats.inactive}</p>
+                        <p className="text-3xl font-bold text-slate-800 mt-2">{effectiveMemberStats.inactive}</p>
                       </div>
                       <div className="glass-card rounded-2xl p-5">
                         <p className="text-xs uppercase tracking-widest text-slate-400">Expired Passports</p>
-                        <p className="text-3xl font-bold text-slate-800 mt-2">{memberStats.expired}</p>
+                        <p className="text-3xl font-bold text-slate-800 mt-2">{effectiveMemberStats.expired}</p>
                       </div>
                     </div>
                   </GlassCard>
@@ -1038,7 +1456,7 @@ export default function AdminCompanyManagementPage() {
                         Export Plan
                       </GlassButton>
                     </div>
-                    <div className="space-y-4">
+                    <fieldset disabled={disableCompanyEditing} className="space-y-4">
                       {Object.entries(selectedCompany.planConfig.categories).map(([key, category]) => (
                         <div key={key} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
                           <label className="text-sm text-slate-600">{category.label}</label>
@@ -1170,7 +1588,7 @@ export default function AdminCompanyManagementPage() {
                           Company-level cap for Child dependents per primary member.
                         </div>
                       </div>
-                    </div>
+                    </fieldset>
                   </GlassCard>
                 </div>
               ) : (
@@ -1179,36 +1597,86 @@ export default function AdminCompanyManagementPage() {
             </div>
 
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
+              {companyFormError && <p className="mr-auto text-xs text-red-500 font-medium self-center">{companyFormError}</p>}
               <GlassButton
                 variant="secondary"
                 onClick={() => {
                   setIsCompanyModalOpen(false);
                   setEditingCompanyId(null);
                   setCompanyModalView("details");
+                  setCompanyFormError("");
                 }}
               >
                 Cancel
               </GlassButton>
               {companyModalView === "details" && (
                 <GlassButton
-                  onClick={() => {
-                    if (!companyForm.companyId || !companyForm.name || !companyForm.registrationNoNew) return;
+                  disabled={disableCompanyEditing}
+                  onClick={async () => {
+                    if (disableCompanyEditing) return;
+                    if (!companyForm.companyId || !companyForm.name || !companyForm.registrationNoNew) {
+                      setCompanyFormError("Please complete Company ID, Company Name, and Registration No. (New).");
+                      return;
+                    }
                     const isEditing = Boolean(editingCompanyId);
-                    saveCompany({
+                    const normalizedCompany = {
                       ...companyForm,
-                      contactPhone: normalizePhone(companyForm.contactPhone),
-                      contactPhoneSecondary: normalizePhone(companyForm.contactPhoneSecondary || ""),
-                    });
-                    refreshCompanySnapshot();
-                    setSelectedCompanyId(companyForm.companyId);
-                    logAdminAction(`${isEditing ? "Updated" : "Created"} company ${companyForm.companyId}`);
+                      hrName: normalizeName(companyForm.hrName || ""),
+                      contactPhoneName: normalizeName(companyForm.contactPhoneName || ""),
+                      contactPhone: normalizePhoneInput(companyForm.contactPhone),
+                      contactPhoneSecondaryName: normalizeName(companyForm.contactPhoneSecondaryName || ""),
+                      contactPhoneSecondary: normalizePhoneInput(companyForm.contactPhoneSecondary || ""),
+                    };
+                    if (!normalizedCompany.hrName) {
+                      setCompanyFormError("HR name is required.");
+                      return;
+                    }
+                    if (!normalizedCompany.contactEmail || !isValidEmail(normalizedCompany.contactEmail)) {
+                      setCompanyFormError("Please enter a valid HR contact email.");
+                      return;
+                    }
+                    if (!normalizedCompany.contactPhoneName) {
+                      setCompanyFormError("Primary contact person name is required.");
+                      return;
+                    }
+                    if (!isValidPhone(normalizedCompany.contactPhone)) {
+                      setCompanyFormError("Primary contact phone format is invalid.");
+                      return;
+                    }
+                    if (normalizedCompany.contactPhoneSecondary && !normalizedCompany.contactPhoneSecondaryName) {
+                      setCompanyFormError("Second contact person name is required when second contact number is filled.");
+                      return;
+                    }
+                    if (normalizedCompany.contactPhoneSecondary && !isValidPhone(normalizedCompany.contactPhoneSecondary)) {
+                      setCompanyFormError("Second contact phone format is invalid.");
+                      return;
+                    }
+                    if (normalizedCompany.contactPhoneSecondaryName && !normalizedCompany.contactPhoneSecondary) {
+                      setCompanyFormError("Second contact number is required when second contact person name is filled.");
+                      return;
+                    }
+                    setCompanyFormError("");
+                    try {
+                      await upsertCompanyToSupabase(normalizedCompany);
+                      await loadCompanies();
+                      setSelectedCompanyId(normalizedCompany.companyId);
+                      await logAdminAction(
+                        `${isEditing ? "Updated" : "Created"} company ${normalizedCompany.companyId}`,
+                        "companies",
+                        normalizedCompany.companyId
+                      );
+                    } catch (error) {
+                      alert(normalizeSupabaseErrorMessage(error, "Failed to save company."));
+                      return;
+                    }
                     setCompanyForm(createEmptyCompanyForm());
                     setEditingCompanyId(null);
                     setCompanyModalView("details");
+                    setCompanyFormError("");
                     setIsCompanyModalOpen(false);
                   }}
                 >
-                  {editingCompanyId ? "Update Company" : "Save Company"}
+                  {isCompanyAccessPending ? "Checking Access..." : editingCompanyId ? "Update Company" : "Save Company"}
                 </GlassButton>
               )}
             </div>
@@ -1217,7 +1685,7 @@ export default function AdminCompanyManagementPage() {
       )}
 
       {isMemberModalOpen && selectedCompany && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm">
           <div className="absolute inset-0" onClick={() => setIsMemberModalOpen(false)} />
           <GlassCard className="w-full max-w-4xl p-0 shadow-2xl border-white/80 bg-white/95 backdrop-blur-xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-hidden flex flex-col ring-1 ring-black/5 relative">
             <div className="px-8 py-6 border-b border-slate-200/60 bg-white/50 backdrop-blur-md flex justify-between items-center sticky top-0 z-20">
@@ -1237,7 +1705,7 @@ export default function AdminCompanyManagementPage() {
             </div>
 
             <div className="overflow-y-auto p-8 custom-scrollbar">
-              <form className="space-y-8">
+              <fieldset disabled={disableCompanyEditing} className="space-y-8">
                 <section className="space-y-4">
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                   <span className="w-1 h-4 bg-sky-500 rounded-full"/>
@@ -1247,7 +1715,15 @@ export default function AdminCompanyManagementPage() {
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700">Full Name <span className="text-red-500">*</span></label>
                     <div className="relative">
-                      <input type="text" className="w-full glass-input pl-10 pr-4 py-2.5" placeholder="Full Name as per ID" value={memberForm.fullName} onChange={(e) => setMemberForm({ ...memberForm, fullName: normalizeName(e.target.value) })} required />
+                      <input
+                        type="text"
+                        className="w-full glass-input pl-10 pr-4 py-2.5"
+                        placeholder="Full Name as per ID"
+                        value={memberForm.fullName}
+                        onChange={(e) => setMemberForm({ ...memberForm, fullName: e.target.value })}
+                        onBlur={() => setMemberForm((prev) => ({ ...prev, fullName: normalizeName(prev.fullName) }))}
+                        required
+                      />
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                     </div>
                   </div>
@@ -1671,7 +2147,15 @@ export default function AdminCompanyManagementPage() {
                                   setMemberForm((prev) => ({
                                     ...prev,
                                     dependents: prev.dependents.map((item, i) =>
-                                      i === index ? { ...item, fullName: normalizeName(e.target.value) } : item
+                                      i === index ? { ...item, fullName: e.target.value } : item
+                                    ),
+                                  }))
+                                }
+                                onBlur={() =>
+                                  setMemberForm((prev) => ({
+                                    ...prev,
+                                    dependents: prev.dependents.map((item, i) =>
+                                      i === index ? { ...item, fullName: normalizeName(item.fullName) } : item
                                     ),
                                   }))
                                 }
@@ -1852,13 +2336,15 @@ export default function AdminCompanyManagementPage() {
                   </div>
                   <p className="text-[10px] text-slate-500">If member ID Type is Passport, all dependents require passport number and passport expiry date.</p>
                 </section>
-              </form>
+              </fieldset>
             </div>
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
               {memberFormError && <p className="mr-auto text-xs text-red-500 font-medium self-center">{memberFormError}</p>}
               <GlassButton variant="secondary" onClick={() => setIsMemberModalOpen(false)}>Cancel</GlassButton>
               <GlassButton
-                onClick={() => {
+                disabled={disableCompanyEditing}
+                onClick={async () => {
+                  if (disableCompanyEditing) return;
                   if (!memberForm.staffId || !memberForm.fullName || !memberForm.email) {
                     setMemberFormError("Please complete Staff ID, Full Name, and Email.");
                     return;
@@ -1897,6 +2383,23 @@ export default function AdminCompanyManagementPage() {
                       return;
                     }
                   }
+                  const draftedDependents: Array<{ relationship?: string; gender?: string }> = [];
+                  for (const dependent of memberForm.dependents) {
+                    const relationshipError = validateFamilyRelationshipCaps({
+                      relationship: dependent.relationship,
+                      gender: dependent.gender,
+                      existingDependents: draftedDependents,
+                      maxChildren: selectedCompany.planConfig.dependents.maxChildren,
+                    });
+                    if (relationshipError) {
+                      setMemberFormError(relationshipError);
+                      return;
+                    }
+                    draftedDependents.push({
+                      relationship: dependent.relationship,
+                      gender: dependent.gender,
+                    });
+                  }
                   const familyPlanLimits = Object.entries(memberForm.planLimits || {}).reduce<Record<string, number>>((acc, [key, value]) => {
                     if (memberForm.planType === "category" && memberForm.planSelection?.[key]) {
                       acc[key] = getNumericLimit(value);
@@ -1924,9 +2427,6 @@ export default function AdminCompanyManagementPage() {
                     }
                   }
 
-                  const phoneCombined = memberForm.phone
-                    ? `${memberForm.phoneCountryCode} ${memberForm.phone}`
-                    : memberForm.phoneCountryCode;
                   const normalizedFullName = normalizeName(memberForm.fullName);
                   const primaryDob = memberForm.idType === "NRIC"
                     ? inferDobFromNric(memberForm.nricPassport) || memberForm.dob || undefined
@@ -1944,7 +2444,7 @@ export default function AdminCompanyManagementPage() {
                         : Math.max(familyLumpSumLimit - getDependentAllocatedLumpSum(memberForm.dependents), 0)
                       : undefined;
 
-                  saveCompany({
+                  const updatedCompany: Company = {
                     ...selectedCompany,
                     planConfig: {
                       ...selectedCompany.planConfig,
@@ -1954,79 +2454,260 @@ export default function AdminCompanyManagementPage() {
                         sharedLimit: memberForm.dependentSharedLimit,
                       },
                     },
-                  });
+                  };
+                  updateSelectedCompany(updatedCompany);
 
-                  saveMemberDirectoryEntry({
-                    companyId: selectedCompany.companyId,
-                    staffId: memberForm.staffId,
-                    fullName: normalizedFullName,
-                    email: memberForm.email,
-                    memberType: "primary",
-                    dob: primaryDob,
-                    gender: memberForm.gender,
-                    relationship: "Employee",
-                    phone: normalizePhone(phoneCombined) || undefined,
-                    status: memberForm.status,
-                    passportExpiry: memberForm.idType === "Passport" ? memberForm.passportExpiry || undefined : undefined,
-                    passportNo: memberForm.idType === "Passport" ? memberForm.nricPassport || undefined : undefined,
-                    nationality: memberForm.nationality || undefined,
-                    nricPassport: memberForm.nricPassport || undefined,
-                    passportFileName: memberForm.idType === "Passport" ? memberForm.passportFileName || undefined : undefined,
-                    planType: memberForm.planType,
-                    lumpSumLimit: primaryLumpSumLimit,
-                    familyLumpSumLimit: familyLumpSumLimit,
-                    planSelection: memberForm.planSelection,
-                    planLimits: primaryPlanLimits,
-                    familyPlanLimits: familyPlanLimits,
-                  });
-                  memberForm.dependents.forEach((dependent, index) => {
-                    const dependentPlanLimits = (Object.entries(familyPlanLimits) as Array<[CompanyPlanCategoryKey, number]>).reduce<Record<string, number>>((acc, [key]) => {
-                      acc[key] = memberForm.dependentSharedLimit ? familyPlanLimits[key] : getNumericLimit(dependent.planLimits?.[key]);
-                      return acc;
-                    }, {});
-                    saveMemberDirectoryEntry({
-                      companyId: selectedCompany.companyId,
-                      staffId: `${memberForm.staffId}-DEP-${index + 1}`,
-                      fullName: normalizeName(dependent.fullName),
-                      email: `${memberForm.staffId.toLowerCase()}-dep${index + 1}@placeholder.local`,
-                      memberType: "dependent",
-                      parentStaffId: memberForm.staffId,
-                      dob: undefined,
-                      gender: dependent.gender,
-                      relationship: dependent.relationship,
-                      status: "Active",
-                      passportExpiry: memberForm.idType === "Passport" ? dependent.passportExpiry || undefined : undefined,
-                      passportNo: memberForm.idType === "Passport" ? dependent.nricPassport || undefined : undefined,
-                      nationality: memberForm.nationality || undefined,
-                      nricPassport: dependent.nricPassport || undefined,
-                      planType: memberForm.planType,
-                      lumpSumLimit:
-                        memberForm.planType === "lump_sum"
-                          ? memberForm.dependentSharedLimit
-                            ? familyLumpSumLimit
-                            : getNumericLimit(dependent.lumpSumLimit)
-                          : undefined,
-                      planSelection: memberForm.planSelection,
-                      planLimits: dependentPlanLimits,
-                    });
-                  });
                   const tempPassword = memberForm.tempPassword || "Temp1234";
-                  sha256(tempPassword).then((passwordHash) => {
-                    saveMemberAccount({
-                      companyId: selectedCompany.companyId,
+                  const categoryEnabled = Object.keys(memberForm.planSelection || {}).reduce<Record<string, string>>(
+                    (acc, key) => {
+                      acc[key] = memberForm.planSelection?.[key] ? "true" : "false";
+                      return acc;
+                    },
+                    {}
+                  );
+                  const categoryLimits = (Object.entries(primaryPlanLimits) as Array<[string, number]>).reduce<Record<string, string>>(
+                    (acc, [key, value]) => {
+                      acc[key] = String(value);
+                      return acc;
+                    },
+                    {}
+                  );
+
+                  const rows: BulkImportMemberRow[] = [
+                    {
+                      rowNumber: 1,
+                      type: "primary" as const,
                       staffId: memberForm.staffId,
-                      passwordHash,
-                      mustChangePassword: true,
+                      fullName: normalizedFullName,
+                      gender: memberForm.gender || "",
+                      idType: memberForm.idType,
+                      nricPassport: memberForm.nricPassport || "",
+                      nationality: memberForm.nationality || "",
+                      status: memberForm.status,
+                      phoneCountryCode: memberForm.phoneCountryCode || "",
+                      phone: memberForm.phone || "",
+                      dob: primaryDob || "",
+                      passportExpiry: memberForm.passportExpiry || "",
+                      passportFileName: memberForm.passportFileName || "",
+                      email: memberForm.email || "",
+                      tempPassword,
+                      planType: memberForm.planType,
+                      lumpSumLimit: String(primaryLumpSumLimit || familyLumpSumLimit || ""),
+                      categoryEnabled,
+                      categoryLimits,
+                    },
+                    ...memberForm.dependents.map((dependent, index) => {
+                      const dependentPlanLimits = (Object.entries(familyPlanLimits) as Array<[CompanyPlanCategoryKey, number]>).reduce<
+                        Record<string, string>
+                      >((acc, [key]) => {
+                        const value = memberForm.dependentSharedLimit
+                          ? familyPlanLimits[key]
+                          : getNumericLimit(dependent.planLimits?.[key]);
+                        acc[key] = String(value);
+                        return acc;
+                      }, {});
+
+                      return {
+                        rowNumber: index + 2,
+                        type: "dependent" as const,
+                        staffId: `${memberForm.staffId}-DEP-${index + 1}`,
+                        parentStaffId: memberForm.staffId,
+                        relationship: dependent.relationship,
+                        fullName: normalizeName(dependent.fullName),
+                        gender: dependent.gender || "",
+                        idType: memberForm.idType,
+                        nricPassport: dependent.nricPassport || "",
+                        nationality: memberForm.nationality || "",
+                        status: "Active",
+                        phoneCountryCode: "",
+                        phone: "",
+                        dob: "",
+                        passportExpiry: dependent.passportExpiry || "",
+                        passportFileName: "",
+                        planType: memberForm.planType,
+                        lumpSumLimit: "",
+                        categoryEnabled,
+                        categoryLimits: dependentPlanLimits,
+                      };
+                    }),
+                  ];
+
+                  try {
+                    await upsertCompanyToSupabase(updatedCompany);
+                    const res = await fetch(withBasePath("/api/admin/members/bulk-import"), {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ companyId: selectedCompany.companyId, mode: "upsert", rows }),
                     });
-                  });
-                  logAdminAction(`Created member ${memberForm.staffId} in ${selectedCompany.companyId}`);
-                  setMemberForm(createEmptyMemberForm(selectedCompany));
-                  setMemberFormError("");
-                  refreshCompanySnapshot();
-                  setIsMemberModalOpen(false);
+                    const payload = (await res.json()) as { error?: string };
+                    if (!res.ok) throw new Error(payload.error || "Failed to create member.");
+                    await refreshRemoteMemberStats(selectedCompany.companyId);
+                    await loadMembersForCompany(selectedCompany.companyId);
+                    await loadCompanies();
+                    await logAdminAction(
+                      `Created member ${memberForm.staffId} in ${selectedCompany.companyId}`,
+                      "members",
+                      memberForm.staffId
+                    );
+                    setMemberForm(createEmptyMemberForm(selectedCompany));
+                    setMemberFormError("");
+                    setIsMemberModalOpen(false);
+                  } catch (error) {
+                    setMemberFormError(normalizeSupabaseErrorMessage(error, "Failed to create member."));
+                  }
                 }}
               >
-                Save Member
+                {isCompanyAccessPending ? "Checking Access..." : "Save Member"}
+              </GlassButton>
+            </div>
+          </GlassCard>
+        </div>
+      )}
+
+      {isBulkImportOpen && selectedCompany && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm">
+          <div className="absolute inset-0" onClick={closeBulkImport} />
+          <GlassCard className="w-full max-w-3xl p-0 shadow-2xl border-white/80 bg-white/95 backdrop-blur-xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-hidden flex flex-col ring-1 ring-black/5 relative">
+            <div className="px-8 py-6 border-b border-slate-200/60 bg-white/50 backdrop-blur-md flex justify-between items-center sticky top-0 z-20">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                  <Upload className="w-6 h-6 text-sky-600" />
+                  Bulk Upload Members (Excel)
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Upload an Excel file to upsert members for {selectedCompany.name}.
+                </p>
+              </div>
+              <button
+                onClick={closeBulkImport}
+                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-8 custom-scrollbar space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="text-sm text-slate-600">
+                  Use the template to ensure headers match the current plan configuration.
+                </div>
+                <GlassButton variant="secondary" className="gap-2" onClick={handleDownloadMemberTemplate}>
+                  <Download className="w-4 h-4" />
+                  Download Template
+                </GlassButton>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">Excel File</label>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="w-full glass-input px-4 py-2.5 bg-white text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-200 file:bg-slate-100 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-wider file:text-slate-600 hover:file:bg-slate-200/80"
+                  disabled={disableCompanyEditing}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) return;
+                    handleBulkImportFile(file);
+                  }}
+                />
+                {bulkImportFile && (
+                  <p className="text-[11px] text-slate-500 pl-1">
+                    Selected: {bulkImportFile.name}
+                  </p>
+                )}
+              </div>
+
+              {bulkImportPreview.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="glass-card rounded-2xl p-5">
+                    <p className="text-xs uppercase tracking-widest text-slate-400">Valid Rows</p>
+                    <p className="text-3xl font-bold text-emerald-700 mt-2">{bulkImportStats.ok}</p>
+                  </div>
+                  <div className="glass-card rounded-2xl p-5">
+                    <p className="text-xs uppercase tracking-widest text-slate-400">Rows With Errors</p>
+                    <p className="text-3xl font-bold text-rose-700 mt-2">{bulkImportStats.error}</p>
+                  </div>
+                </div>
+              )}
+
+              {bulkImportPreview.some((row) => row.status === "error") && (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-5 space-y-3">
+                  <p className="text-sm font-semibold text-rose-700">Fix these errors</p>
+                  <div className="space-y-2">
+                    {bulkImportPreview
+                      .filter((row): row is Extract<ImportRowResult, { status: "error" }> => row.status === "error")
+                      .slice(0, 10)
+                      .map((row) => (
+                        <div key={`err-${row.rowNumber}`} className="text-xs text-rose-700">
+                          Row {row.rowNumber}: {row.errors[0]}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {bulkImportPreview.some((row) => row.status === "ok") && (
+                <div className="rounded-2xl border border-slate-200 bg-white/70 p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-slate-800">Preview</p>
+                    <p className="text-xs text-slate-500">Showing up to 8 rows</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-50/80">
+                        <tr className="text-left text-[11px] uppercase tracking-widest text-slate-400">
+                          <th className="px-4 py-2">Row</th>
+                          <th className="px-4 py-2">Type</th>
+                          <th className="px-4 py-2">Staff ID</th>
+                          <th className="px-4 py-2">Name</th>
+                          <th className="px-4 py-2">Ref</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bulkImportPreview
+                          .filter((row): row is Extract<ImportRowResult, { status: "ok" }> => row.status === "ok")
+                          .slice(0, 8)
+                          .map((row) => (
+                            <tr key={`ok-${row.rowNumber}`} className="border-t border-slate-100">
+                              <td className="px-4 py-2 text-slate-500">{row.rowNumber}</td>
+                              <td className="px-4 py-2 text-slate-500">{row.row.type}</td>
+                              <td className="px-4 py-2 font-semibold text-slate-800">{row.row.staffId}</td>
+                              <td className="px-4 py-2 text-slate-600">{row.row.fullName}</td>
+                              <td className="px-4 py-2 text-slate-500">
+                                {row.row.type === "primary" ? row.row.email : row.row.parentStaffId}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
+              {bulkImportError && (
+                <p className="mr-auto text-xs text-red-500 font-medium self-center">{bulkImportError}</p>
+              )}
+              <GlassButton variant="secondary" onClick={closeBulkImport} disabled={bulkImportIsSubmitting}>
+                Cancel
+              </GlassButton>
+              <GlassButton
+                onClick={confirmBulkImport}
+                disabled={
+                  disableCompanyEditing ||
+                  bulkImportIsSubmitting ||
+                  !bulkImportFile ||
+                  bulkImportPreview.length === 0 ||
+                  bulkImportStats.ok === 0 ||
+                  bulkImportStats.error > 0
+                }
+              >
+                {isCompanyAccessPending
+                  ? "Checking Access..."
+                  : bulkImportIsSubmitting
+                    ? "Importing..."
+                    : `Import ${bulkImportStats.ok} Rows`}
               </GlassButton>
             </div>
           </GlassCard>

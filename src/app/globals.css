@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc;
+  --foreground: #0f172a;
 }
 
 @theme inline {
@@ -12,15 +12,122 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+::selection {
+  background-color: rgb(186 230 253);
+  color: rgb(15 23 42);
+}
+
+@layer base {
+  input,
+  select,
+  textarea {
+    @apply border border-slate-200/90;
+  }
+
+  input[type="file"]::file-selector-button {
+    @apply mr-3 px-4 py-2 rounded-lg font-semibold border border-slate-300 bg-slate-100 text-slate-700 transition-colors cursor-pointer;
+    border-top-right-radius: 0.5rem;
+    border-bottom-right-radius: 0.5rem;
+  }
+
+  input[type="file"]::file-selector-button:hover {
+    @apply bg-slate-200 border-slate-400;
+  }
+
+  input[type="file"]::-webkit-file-upload-button {
+    @apply mr-3 px-4 py-2 rounded-lg font-semibold border border-slate-300 bg-slate-100 text-slate-700 transition-colors cursor-pointer;
+    border-top-right-radius: 0.5rem;
+    border-bottom-right-radius: 0.5rem;
+  }
+
+  input[type="file"]::-webkit-file-upload-button:hover {
+    @apply bg-slate-200 border-slate-400;
+  }
+
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    @apply outline-none ring-2 ring-sky-400/30 ring-offset-2 ring-offset-slate-50;
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-white/70 backdrop-blur-xl border border-slate-200/80 shadow-xl shadow-slate-200/40;
+  }
+
+  .glass-input {
+    @apply backdrop-blur-md border border-slate-200/90 rounded-xl text-slate-800 placeholder:text-slate-400 transition-colors;
+    background-color: rgb(255 255 255 / 0.8) !important;
+  }
+
+  .glass-input:hover {
+    @apply border-slate-300;
+  }
+
+  .glass-input:focus-visible {
+    @apply border-sky-400 bg-white ring-2 ring-sky-400/40 ring-offset-2 ring-offset-slate-50 outline-none;
+  }
+
+  .glass-input[type="file"] {
+    @apply pr-3;
+    padding-left: 0.75rem;
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
+
+  .glass-input[type="file"]::file-selector-button {
+    @apply mr-3 px-4 py-2 rounded-lg font-semibold border border-slate-300 bg-slate-100 text-slate-700 transition-colors cursor-pointer;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right-color: rgb(203 213 225 / 0.9);
+    border-right-width: 1px;
+  }
+
+  .glass-input[type="file"]::file-selector-button:hover {
+    @apply border-slate-400 bg-slate-200;
+  }
+
+  .glass-input[type="file"]::-webkit-file-upload-button {
+    @apply mr-3 px-4 py-2 rounded-lg font-semibold border border-slate-300 bg-slate-100 text-slate-700 transition-colors cursor-pointer;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right-color: rgb(203 213 225 / 0.9);
+    border-right-width: 1px;
+  }
+
+  .glass-input[type="file"]::-webkit-file-upload-button:hover {
+    @apply border-slate-400 bg-slate-200;
+  }
+
+  .glass-select {
+    @apply backdrop-blur-md border border-slate-200/90 rounded-xl text-slate-800 transition-colors;
+    background-color: rgb(255 255 255 / 0.8) !important;
+  }
+
+  .glass-select:hover {
+    @apply border-slate-300;
+  }
+
+  .glass-select:focus-visible {
+    @apply border-sky-400 bg-white ring-2 ring-sky-400/40 ring-offset-2 ring-offset-slate-50 outline-none;
+  }
+
+  .currency-input {
+    @apply text-right tabular-nums;
+  }
+
+  .currency-prefix {
+    @apply absolute left-3 top-1/2 -translate-y-1/2 text-slate-900 pointer-events-none leading-none;
+  }
 }

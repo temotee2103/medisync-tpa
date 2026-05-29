@@ -1,7 +1,6 @@
 "use client";
 
 import type { Company } from "@/lib/companyStore";
-import { getCompanies } from "@/lib/companyStore";
 import type { MemberDirectoryEntry } from "@/lib/memberSession";
 import { getMemberDirectory } from "@/lib/memberSession";
 import type { ResolvedMemberPlan } from "@/lib/memberPlan";
@@ -35,8 +34,10 @@ const isPassportExpired = (passportExpiry?: string) => {
   return passportExpiry <= todayKey;
 };
 
-export function buildEligibilityResult(member: NonNullable<ReturnType<typeof findMemberByPayload>>): ProviderEligibilityResult {
-  const companies = getCompanies();
+export function buildEligibilityResult(
+  member: NonNullable<ReturnType<typeof findMemberByPayload>>,
+  companies: Company[]
+): ProviderEligibilityResult {
   const company = companies.find((c) => c.companyId === member.companyId) || null;
   const plan = resolveMemberPlan(member, company);
 
@@ -67,4 +68,3 @@ export function buildEligibilityResult(member: NonNullable<ReturnType<typeof fin
     eligibilityStatus: "Active",
   };
 }
-

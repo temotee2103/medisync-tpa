@@ -1,57 +1,44 @@
 "use client";
 
+import Link from "next/link";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { MobileRecordCard } from "@/components/ui/MobileRecordCard";
 import { ResponsiveDataView } from "@/components/ui/ResponsiveDataView";
-import {
-  Calendar,
-  ChevronDown,
-  ChevronUp,
-  CreditCard,
-  Download,
-  DollarSign,
-  ExternalLink,
-  FileText,
-  Landmark,
-  ReceiptText,
-  Search,
-  TimerReset,
-} from "lucide-react";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { ChevronDown, ChevronUp, CreditCard, ExternalLink, Landmark, ReceiptText, Search, TimerReset } from "lucide-react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
-import { downloadText } from "@/lib/download";
 import { formatCurrency, formatDateDisplay } from "@/lib/formats";
-import { downloadDataUrlFile, openDataUrlInNewTab } from "@/lib/fileData";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
-  ensureAdminClaimsSeed,
-  getAdminClaimsServerSnapshot,
-  getAdminClaimsSnapshot,
-  subscribeAdminClaims,
-} from "@/lib/claimsStore";
-import { ensureProviderSeed, getProviderById, getProviderSession } from "@/lib/providerSession";
+  ensureProviderSeed,
+  getProviderById,
+  getProviderSession,
+  normalizeProviderUserRole,
+  type ProviderSession,
+} from "@/lib/providerSession";
+import {
+  ensureProviderClaimsStore,
+  getProviderClaimsServerSnapshot,
+  getProviderClaimsSnapshot,
+  refreshProviderClaimsSnapshot,
+  subscribeProviderClaims,
+} from "@/lib/providerClaimsStore";
 
-type PaymentBatchClaim = {
-  id: string;
-  patient: string;
-  visitDate: string;
-  diagnosis: string;
-  amount: number;
-  serviceType: string;
-  pvFileName?: string;
-  pvDataUrl?: string;
-};
+type ProviderLifecycleStatus =
+  | "submitted"
+  | "request_additional_information"
+  | "rejected"
+  | "in_process"
+  | "approved";
 
-type PaymentBatch = {
-  id: string;
-  noticeNo: string;
-  date: string;
-  year: string;
-  amount: number;
-  status: "Paid";
-  slipFileName: string;
-  claims: PaymentBatchClaim[];
-};
+const PROVIDER_LIFECYCLE_STATUSES: ProviderLifecycleStatus[] = [
+  "submitted",
+  "request_additional_information",
+  "rejected",
+  "in_process",
+  "approved",
+];
 
 const getDateValue = (value?: string) => {
   if (!value) return 0;
@@ -59,28 +46,118 @@ const getDateValue = (value?: string) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const buildStatementCsv = (batch: PaymentBatch) => {
-  const header = "Claim ID,Patient,Visit Date,Service Type,Diagnosis,Amount";
-  const rows = batch.claims.map((claim) =>
-    [
-      claim.id,
-      claim.patient,
-      claim.visitDate,
-      claim.serviceType,
-      claim.diagnosis,
-      formatCurrency(claim.amount),
-    ]
-      .map((value) => `"${value}"`)
-      .join(",")
-  );
+const normalizeProviderSubmissionStatus = (status?: string) => String(status || "").trim().toLowerCase();
 
-  return [header, ...rows].join("\n");
+const formatProviderSubmissionStatus = (status?: string) => {
+  switch (normalizeProviderSubmissionStatus(status)) {
+    case "request_additional_information":
+      return "Request Additional Information";
+    case "submitted":
+      return "Submitted";
+    case "rejected":
+      return "Rejected";
+    case "in_process":
+      return "In Process";
+    case "approved":
+      return "Approved";
+    default:
+      return status || "Unknown";
+  }
 };
 
+const getProviderSubmissionStatusClasses = (status?: string) => {
+  switch (normalizeProviderSubmissionStatus(status)) {
+    case "approved":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "rejected":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "request_additional_information":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "in_process":
+      return "border-violet-200 bg-violet-50 text-violet-700";
+    case "submitted":
+    default:
+      return "border-sky-200 bg-sky-50 text-sky-700";
+  }
+};
+
+const getClaimTimelineDate = (claim: {
+  approvedAt?: string;
+  reviewedAt?: string;
+  submittedAt?: string;
+  createdAt?: string;
+  treatmentDate?: string;
+}) => claim.approvedAt || claim.reviewedAt || claim.submittedAt || claim.createdAt || claim.treatmentDate || "";
+
+type CurrentProviderUserRow = {
+  id?: string | null;
+  role?: string | null;
+  providers?: {
+    id?: string | null;
+    vendor_id?: string | null;
+    provider_name?: string | null;
+  } | null;
+};
+
+const getClaimYear = (claim: {
+  approvedAt?: string;
+  reviewedAt?: string;
+  submittedAt?: string;
+  createdAt?: string;
+  treatmentDate?: string;
+}) => getClaimTimelineDate(claim).slice(0, 4);
+
+const formatStatusDetail = (claim: {
+  status?: string;
+  submittedAt?: string;
+  reviewedAt?: string;
+  approvedAt?: string;
+  createdAt?: string;
+  treatmentDate?: string;
+  reviewNote?: string;
+  approvalAttachmentName?: string;
+}) => {
+  const normalizedStatus = normalizeProviderSubmissionStatus(claim.status);
+
+  switch (normalizedStatus) {
+    case "request_additional_information":
+      return claim.reviewNote
+        ? `Admin requested more information on ${formatDateDisplay(claim.reviewedAt || claim.submittedAt || "")}. ${claim.reviewNote}`
+        : `Admin requested more information on ${formatDateDisplay(claim.reviewedAt || claim.submittedAt || "")}. Update the submission to continue the lifecycle.`;
+    case "rejected":
+      return claim.reviewNote
+        ? `Rejected on ${formatDateDisplay(claim.reviewedAt || claim.submittedAt || "")}. ${claim.reviewNote}`
+        : `Rejected on ${formatDateDisplay(claim.reviewedAt || claim.submittedAt || "")}. Review the admin note for the reason.`;
+    case "in_process":
+      return `Reviewed on ${formatDateDisplay(claim.reviewedAt || claim.submittedAt || "")}. The claim passed review and is waiting for finance/payment completion.`;
+    case "approved":
+      return claim.approvalAttachmentName
+        ? `Completed on ${formatDateDisplay(claim.approvedAt || claim.reviewedAt || claim.submittedAt || "")}. Payment has been finalized and an approval attachment is available.`
+        : `Completed on ${formatDateDisplay(claim.approvedAt || claim.reviewedAt || claim.submittedAt || "")}. Payment has been finalized.`;
+    case "submitted":
+    default:
+      return `Submitted on ${formatDateDisplay(claim.submittedAt || claim.createdAt || claim.treatmentDate || "")}. Awaiting admin review before payment processing can begin.`;
+  }
+};
+
+const openApprovalAttachment = (attachmentPath: string) => {
+  if (typeof window === "undefined") return;
+  window.open(attachmentPath, "_blank", "noopener,noreferrer");
+};
+
+const canDownloadPvForClaim = (status?: string, approvalAttachmentPath?: string) =>
+  normalizeProviderSubmissionStatus(status) === "approved" && Boolean(approvalAttachmentPath);
+
+const isApprovedWithoutPv = (status?: string, approvalAttachmentPath?: string) =>
+  normalizeProviderSubmissionStatus(status) === "approved" && !approvalAttachmentPath;
+
 export default function PaymentHistoryPage() {
-  const [expandedPv, setExpandedPv] = useState<string | null>(null);
+  const [expandedClaimId, setExpandedClaimId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterYear, setFilterYear] = useState("All");
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [resolvedProviderSession, setResolvedProviderSession] = useState<ProviderSession | null>(null);
+  const [resolvedProviderUuid, setResolvedProviderUuid] = useState("");
 
   const isHydrated = useSyncExternalStore(
     () => () => {},
@@ -90,129 +167,144 @@ export default function PaymentHistoryPage() {
 
   if (isHydrated) {
     ensureProviderSeed();
-    ensureAdminClaimsSeed();
+    ensureProviderClaimsStore();
   }
 
-  const providerSession = isHydrated ? getProviderSession() : null;
-  const provider = providerSession?.providerId ? getProviderById(providerSession.providerId) : null;
-  const providerName = provider?.providerName || providerSession?.providerName || "City General Hospital";
-  const adminClaims = useSyncExternalStore(
-    subscribeAdminClaims,
-    getAdminClaimsSnapshot,
-    getAdminClaimsServerSnapshot
+  useEffect(() => {
+    if (!isHydrated) return;
+    ensureProviderSeed();
+    let cancelled = false;
+
+    (async () => {
+      const supabase = createSupabaseBrowserClient();
+      const { data } = await supabase.auth.getSession();
+      const profileId = data.session?.user.id;
+
+      if (!profileId) {
+        if (!cancelled) {
+          setResolvedProviderSession(null);
+          setResolvedProviderUuid("");
+        }
+        return;
+      }
+
+      const { data: providerUserRow, error } = await supabase
+        .from("provider_users")
+        .select("id, role, providers(id, vendor_id, provider_name)")
+        .eq("profile_id", profileId)
+        .maybeSingle();
+
+      if (error || !providerUserRow) {
+        if (!cancelled) {
+          setResolvedProviderSession(null);
+          setResolvedProviderUuid("");
+        }
+        return;
+      }
+
+      const row = providerUserRow as unknown as CurrentProviderUserRow;
+      const vendorId = String(row.providers?.vendor_id || "");
+      const providerName = String(row.providers?.provider_name || "");
+      const providerUuid = String(row.providers?.id || "");
+      const providerUserRole = normalizeProviderUserRole(row.role || "") || "provider_admin";
+
+      if (!cancelled) {
+        setResolvedProviderSession({
+          vendorId,
+          providerUuid,
+          providerName,
+          providerUserId: String(row.id || ""),
+          providerUserRole,
+        });
+        setResolvedProviderUuid(providerUuid);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isHydrated]);
+
+  const providerSession = isHydrated ? (resolvedProviderSession || getProviderSession()) : null;
+  const provider = providerSession?.vendorId ? getProviderById(providerSession.vendorId) : null;
+  const providerName = provider?.providerName || providerSession?.providerName || "Provider";
+  const providerScopeUuid = providerSession?.providerUuid || resolvedProviderUuid || "";
+  const providerClaimsSnapshot = useSyncExternalStore(
+    subscribeProviderClaims,
+    getProviderClaimsSnapshot,
+    getProviderClaimsServerSnapshot
   );
-  const providerClaims = useMemo(
-    () => adminClaims.filter((claim) => claim.hospital === providerName),
-    [adminClaims, providerName]
+
+  useEffect(() => {
+    if (!isHydrated || !providerScopeUuid) return;
+    void refreshProviderClaimsSnapshot();
+  }, [isHydrated, providerScopeUuid]);
+
+  const paymentHistoryClaims = useMemo(
+    () =>
+      providerClaimsSnapshot
+        .filter(
+          (claim) =>
+            claim.providerId === providerScopeUuid &&
+            PROVIDER_LIFECYCLE_STATUSES.includes(
+              normalizeProviderSubmissionStatus(claim.status) as ProviderLifecycleStatus
+            )
+        )
+        .sort((left, right) => getDateValue(getClaimTimelineDate(right)) - getDateValue(getClaimTimelineDate(left))),
+    [providerClaimsSnapshot, providerScopeUuid]
   );
-
-  const approvedClaims = useMemo(
-    () => providerClaims.filter((claim) => claim.status === "Approved" && claim.bankSlipFileName),
-    [providerClaims]
-  );
-  const pendingClaims = useMemo(
-    () => providerClaims.filter((claim) => ["In review", "In progress"].includes(claim.status)),
-    [providerClaims]
-  );
-
-  const paymentBatches = useMemo(() => {
-    const grouped = new Map<string, PaymentBatchClaim[] & { releasedAt?: string; slipFileName?: string }>();
-
-    approvedClaims.forEach((claim) => {
-      const releasedAt = (claim.bankSlipUploadedAt || claim.date || "").slice(0, 10);
-      const slipFileName = claim.bankSlipFileName || "bank-slip";
-      const key = `${releasedAt}__${slipFileName}`;
-      const existing = grouped.get(key) || [];
-      existing.push({
-        id: claim.id,
-        patient: claim.patient,
-        visitDate: claim.date,
-        diagnosis: claim.diagnosis || "Processed via admin approval",
-        amount: claim.amount,
-        serviceType: claim.serviceType || "General Medical",
-        pvFileName: claim.pvFileName,
-        pvDataUrl: claim.pvDataUrl,
-      });
-      existing.releasedAt = releasedAt;
-      existing.slipFileName = slipFileName;
-      grouped.set(key, existing);
-    });
-
-    const batches = Array.from(grouped.values())
-      .map((claims) => ({
-        date: claims.releasedAt || "",
-        year: (claims.releasedAt || "").slice(0, 4),
-        amount: claims.reduce((sum, claim) => sum + claim.amount, 0),
-        status: "Paid" as const,
-        slipFileName: claims.slipFileName || "bank-slip",
-        claims: [...claims].sort((left, right) => right.visitDate.localeCompare(left.visitDate)),
-      }))
-      .sort((left, right) => getDateValue(right.date) - getDateValue(left.date))
-      .map((batch, index) => {
-        const dateKey = batch.date ? batch.date.replaceAll("-", "") : "00000000";
-        const sequence = String(index + 1).padStart(3, "0");
-        return {
-          ...batch,
-          id: `PV-${dateKey}-${sequence}`,
-          noticeNo: `SN-${dateKey}-${sequence}`,
-        };
-      });
-
-    return batches;
-  }, [approvedClaims]);
 
   const availableYears = useMemo(() => {
-    const years = Array.from(new Set(paymentBatches.map((batch) => batch.year).filter(Boolean)));
+    const years = Array.from(new Set(paymentHistoryClaims.map((claim) => getClaimYear(claim)).filter(Boolean)));
     return years.sort((left, right) => right.localeCompare(left));
-  }, [paymentBatches]);
+  }, [paymentHistoryClaims]);
 
-  const filteredBatches = useMemo(() => {
-    const normalized = searchTerm.trim().toLowerCase();
-    return paymentBatches.filter((batch) => {
-      const matchesYear = filterYear === "All" || batch.year === filterYear;
-      if (!matchesYear) return false;
-      if (!normalized) return true;
+  const filteredClaims = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
 
-      return (
-        batch.id.toLowerCase().includes(normalized) ||
-        batch.noticeNo.toLowerCase().includes(normalized) ||
-        batch.slipFileName.toLowerCase().includes(normalized) ||
-        batch.claims.some(
-          (claim) =>
-            claim.id.toLowerCase().includes(normalized) ||
-            claim.patient.toLowerCase().includes(normalized) ||
-            claim.diagnosis.toLowerCase().includes(normalized)
-        )
-      );
+    return paymentHistoryClaims.filter((claim) => {
+      const normalizedStatus = normalizeProviderSubmissionStatus(claim.status);
+      const matchesYear = filterYear === "All" || getClaimYear(claim) === filterYear;
+      const matchesStatus = filterStatus === "All" || normalizedStatus === filterStatus;
+
+      if (!matchesYear || !matchesStatus) return false;
+      if (!normalizedSearch) return true;
+
+      return [
+        claim.claimNumber,
+        claim.invoiceNumber,
+        claim.patientName,
+        claim.patientStaffId,
+        claim.serviceType,
+        claim.diagnosisSummary,
+        claim.reviewNote,
+        formatProviderSubmissionStatus(claim.status),
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedSearch));
     });
-  }, [filterYear, paymentBatches, searchTerm]);
+  }, [filterStatus, filterYear, paymentHistoryClaims, searchTerm]);
 
   const summary = useMemo(() => {
-    const totalPaid = paymentBatches.reduce((sum, batch) => sum + batch.amount, 0);
-    const totalPending = pendingClaims.reduce((sum, claim) => sum + claim.amount, 0);
-    const latestRelease = paymentBatches[0];
+    const totalAmount = paymentHistoryClaims.reduce((sum, claim) => sum + claim.totalAmount, 0);
+    const statusCounts = paymentHistoryClaims.reduce<Record<string, number>>((counts, claim) => {
+      const normalizedStatus = normalizeProviderSubmissionStatus(claim.status);
+      counts[normalizedStatus] = (counts[normalizedStatus] || 0) + 1;
+      return counts;
+    }, {});
 
     return {
-      totalPaid,
-      batchCount: paymentBatches.length,
-      paidClaimsCount: approvedClaims.length,
-      totalPending,
-      pendingClaimsCount: pendingClaims.length,
-      latestRelease,
+      totalAmount,
+      totalClaims: paymentHistoryClaims.length,
+      actionRequiredCount: statusCounts.request_additional_information || 0,
+      inProcessCount: statusCounts.in_process || 0,
+      approvedCount: statusCounts.approved || 0,
+      latestActivity: paymentHistoryClaims[0] || null,
     };
-  }, [approvedClaims.length, paymentBatches, pendingClaims]);
+  }, [paymentHistoryClaims]);
 
-  const settlementNotices = paymentBatches.map((batch) => ({
-    noticeNo: batch.noticeNo,
-    pv: batch.id,
-    issuedOn: batch.date,
-    gross: batch.amount,
-    adjustment: 0,
-    net: batch.amount,
-  }));
-
-  const toggleExpand = (id: string) => {
-    setExpandedPv(expandedPv === id ? null : id);
+  const toggleExpand = (claimId: string) => {
+    setExpandedClaimId((current) => (current === claimId ? null : claimId));
   };
 
   return (
@@ -226,25 +318,24 @@ export default function PaymentHistoryPage() {
                 <Landmark className="h-3.5 w-3.5" />
                 Payment History
               </div>
-              <h1 className="mt-4 text-2xl font-bold text-slate-900">Settlement and payment releases for {providerName}</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">
-                Current payment history is generated from approved provider claims and grouped by uploaded bank-in slip evidence.
-              </p>
+              <h1 className="mt-4 text-2xl font-bold text-slate-900">Provider invoice lifecycle for {providerName}</h1>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-white/80 bg-white/75 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Latest Release</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Latest Activity</p>
                 <p className="mt-1 text-xl font-bold text-slate-900">
-                  {summary.latestRelease ? formatCurrency(summary.latestRelease.amount) : formatCurrency(0)}
+                  {summary.latestActivity ? formatCurrency(summary.latestActivity.totalAmount) : formatCurrency(0)}
                 </p>
                 <p className="mt-1 text-sm text-slate-600">
-                  {summary.latestRelease ? formatDateDisplay(summary.latestRelease.date) : "No paid batch yet"}
+                  {summary.latestActivity
+                    ? `${formatProviderSubmissionStatus(summary.latestActivity.status)} on ${formatDateDisplay(getClaimTimelineDate(summary.latestActivity))}`
+                    : "No provider invoices found yet"}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/80 bg-white/75 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Awaiting Release</p>
-                <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(summary.totalPending)}</p>
-                <p className="mt-1 text-sm text-slate-600">{summary.pendingClaimsCount} claims still in review workflow</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Tracked Amount</p>
+                <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(summary.totalAmount)}</p>
+                <p className="mt-1 text-sm text-slate-600">Across all unified lifecycle records</p>
               </div>
             </div>
           </div>
@@ -252,31 +343,13 @@ export default function PaymentHistoryPage() {
       </GlassCard>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <GlassCard className="flex items-center gap-4 border-emerald-100 bg-emerald-50/80 p-5">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
-            <DollarSign className="h-6 w-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-emerald-800">Total Paid</p>
-            <p className="text-2xl font-bold text-emerald-700">{formatCurrency(summary.totalPaid)}</p>
-          </div>
-        </GlassCard>
         <GlassCard className="flex items-center gap-4 border-sky-100 bg-sky-50/80 p-5">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-600">
-            <CreditCard className="h-6 w-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-sky-800">Paid Batches</p>
-            <p className="text-2xl font-bold text-sky-700">{summary.batchCount}</p>
-          </div>
-        </GlassCard>
-        <GlassCard className="flex items-center gap-4 border-violet-100 bg-violet-50/80 p-5">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-600">
             <ReceiptText className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-sm font-medium text-violet-800">Paid Claims</p>
-            <p className="text-2xl font-bold text-violet-700">{summary.paidClaimsCount}</p>
+            <p className="text-sm font-medium text-sky-800">All Invoices</p>
+            <p className="text-2xl font-bold text-sky-700">{summary.totalClaims}</p>
           </div>
         </GlassCard>
         <GlassCard className="flex items-center gap-4 border-amber-100 bg-amber-50/80 p-5">
@@ -284,8 +357,26 @@ export default function PaymentHistoryPage() {
             <TimerReset className="h-6 w-6" />
           </div>
           <div>
-            <p className="text-sm font-medium text-amber-800">Pending Claims</p>
-            <p className="text-2xl font-bold text-amber-700">{summary.pendingClaimsCount}</p>
+            <p className="text-sm font-medium text-amber-800">Action Required</p>
+            <p className="text-2xl font-bold text-amber-700">{summary.actionRequiredCount}</p>
+          </div>
+        </GlassCard>
+        <GlassCard className="flex items-center gap-4 border-violet-100 bg-violet-50/80 p-5">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-600">
+            <CreditCard className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-violet-800">In Process</p>
+            <p className="text-2xl font-bold text-violet-700">{summary.inProcessCount}</p>
+          </div>
+        </GlassCard>
+        <GlassCard className="flex items-center gap-4 border-emerald-100 bg-emerald-50/80 p-5">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
+            <Landmark className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-emerald-800">Approved</p>
+            <p className="text-2xl font-bold text-emerald-700">{summary.approvedCount}</p>
           </div>
         </GlassCard>
       </div>
@@ -293,23 +384,31 @@ export default function PaymentHistoryPage() {
       <GlassCard className="border-white/80 bg-white/78 p-5 shadow-lg shadow-sky-100/30">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
-              <FileText className="h-5 w-5 text-sky-600" />
-              Payment Vouchers
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">Each batch is derived from approved claims sharing the same release evidence.</p>
+            <h2 className="text-lg font-bold text-slate-900">Unified Payment History</h2>
           </div>
           <div className="flex w-full flex-col gap-3 lg:w-auto lg:flex-row">
             <div className="relative min-w-[280px]">
               <Search className="absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search PV, notice, slip, claim, patient..."
+                placeholder="Search invoice, claim, patient, service, note..."
                 className="w-full rounded-xl border border-slate-200 bg-white/80 py-2 pl-9 pr-4 text-sm text-slate-700 outline-none ring-0 placeholder:text-slate-400"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
               />
             </div>
+            <select
+              className="rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700 outline-none"
+              value={filterStatus}
+              onChange={(event) => setFilterStatus(event.target.value)}
+            >
+              <option value="All">All Statuses</option>
+              {PROVIDER_LIFECYCLE_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {formatProviderSubmissionStatus(status)}
+                </option>
+              ))}
+            </select>
             <select
               className="rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-700 outline-none"
               value={filterYear}
@@ -329,116 +428,147 @@ export default function PaymentHistoryPage() {
           desktop={
             <div className="mt-5 overflow-hidden rounded-2xl border border-white/80 bg-white/65">
               <div className="divide-y divide-slate-100">
-                {filteredBatches.length ? (
-                  filteredBatches.map((batch) => (
-                    <div key={batch.id}>
-                      <div
-                        className={cn(
-                          "flex cursor-pointer items-center justify-between gap-4 px-5 py-4 transition-colors",
-                          expandedPv === batch.id ? "bg-sky-50/70" : "hover:bg-slate-50/80"
-                        )}
-                        onClick={() => toggleExpand(batch.id)}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-sm font-bold text-emerald-700">
-                            PV
-                          </div>
-                          <div>
-                            <p className="font-semibold text-slate-900">{batch.id}</p>
-                            <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                              <Calendar className="h-3.5 w-3.5" />
-                              {formatDateDisplay(batch.date)} • {batch.slipFileName}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-5">
-                          <div className="text-right">
-                            <p className="font-semibold text-slate-900">{formatCurrency(batch.amount)}</p>
-                            <p className="text-xs text-slate-500">{batch.claims.length} paid claims</p>
-                          </div>
-                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                            {batch.status}
-                          </span>
-                          <div className="text-slate-400">
-                            {expandedPv === batch.id ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-                          </div>
-                        </div>
-                      </div>
-
-                      {expandedPv === batch.id && (
-                        <div className="border-t border-slate-100 bg-slate-50/80 px-5 py-4">
-                          <div className="flex items-center justify-between gap-4">
-                            <div>
-                              <h3 className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Claims Breakdown</h3>
-                              <p className="mt-1 text-sm text-slate-500">{batch.noticeNo} linked to payment evidence</p>
+                {filteredClaims.length ? (
+                  filteredClaims.map((claim) => {
+                    const normalizedStatus = normalizeProviderSubmissionStatus(claim.status);
+                    const canDownloadPv = canDownloadPvForClaim(claim.status, claim.approvalAttachmentPath);
+                    const missingPv = isApprovedWithoutPv(claim.status, claim.approvalAttachmentPath);
+                    const isExpanded = expandedClaimId === claim.id;
+                    return (
+                      <div key={claim.id}>
+                        <div
+                          className={cn(
+                            "flex cursor-pointer items-center justify-between gap-4 px-5 py-4 transition-colors",
+                            isExpanded ? "bg-sky-50/70" : "hover:bg-slate-50/80"
+                          )}
+                          onClick={() => toggleExpand(claim.id)}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-3">
+                              <p className="font-semibold text-slate-900">{claim.claimNumber || claim.invoiceNumber || claim.id}</p>
+                              <span
+                                className={cn(
+                                  "rounded-full border px-3 py-1 text-xs font-semibold",
+                                  getProviderSubmissionStatusClasses(claim.status)
+                                )}
+                              >
+                                {formatProviderSubmissionStatus(claim.status)}
+                              </span>
                             </div>
-                            <GlassButton
-                              variant="secondary"
-                              className="gap-2"
-                              onClick={() => downloadText(`payment-${batch.id}.csv`, buildStatementCsv(batch), "text/csv")}
-                            >
-                              <Download className="h-4 w-4" />
-                              Download Statement
-                            </GlassButton>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {claim.patientName || "Unknown patient"} | {claim.serviceType || "General Medical"} |
+                              Invoice {claim.invoiceNumber || "Pending"}
+                            </p>
+                            <p className="mt-2 text-sm text-slate-600">{formatStatusDetail(claim)}</p>
                           </div>
 
-                          <table className="mt-4 w-full text-left text-sm">
-                            <thead>
-                              <tr className="border-b border-slate-200">
-                                <th className="py-2 font-medium text-slate-500">Claim ID</th>
-                                <th className="py-2 font-medium text-slate-500">Patient</th>
-                                <th className="py-2 font-medium text-slate-500">Visit Date</th>
-                                <th className="py-2 font-medium text-slate-500">Service Type</th>
-                                <th className="py-2 font-medium text-slate-500">Diagnosis</th>
-                                <th className="py-2 font-medium text-slate-500">PV</th>
-                                <th className="py-2 text-right font-medium text-slate-500">Amount</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {batch.claims.map((claim) => (
-                                <tr key={claim.id} className="border-b border-slate-100 last:border-0">
-                                  <td className="py-2 font-medium text-slate-700">{claim.id}</td>
-                                  <td className="py-2 text-slate-600">{claim.patient}</td>
-                                  <td className="py-2 text-slate-500">{formatDateDisplay(claim.visitDate)}</td>
-                                  <td className="py-2 text-slate-500">{claim.serviceType}</td>
-                                  <td className="py-2 text-slate-500">{claim.diagnosis}</td>
-                                  <td className="py-2">
-                                    {claim.pvFileName && claim.pvDataUrl ? (
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <button
-                                          type="button"
-                                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-slate-50"
-                                          onClick={() => openDataUrlInNewTab(claim.pvDataUrl!)}
-                                        >
-                                          <ExternalLink className="h-3.5 w-3.5" />
-                                          Open
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                          onClick={() => downloadDataUrlFile(claim.pvDataUrl!, claim.pvFileName!)}
-                                        >
-                                          <Download className="h-3.5 w-3.5" />
-                                          Download
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <span className="text-xs text-slate-400">Not uploaded</span>
-                                    )}
-                                  </td>
-                                  <td className="py-2 text-right font-semibold text-slate-800">{formatCurrency(claim.amount)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                          <div className="flex items-center gap-5">
+                            <div className="text-right">
+                              <p className="font-semibold text-slate-900">{formatCurrency(claim.totalAmount)}</p>
+                              <p className="text-xs text-slate-500">Treatment {formatDateDisplay(claim.treatmentDate)}</p>
+                            </div>
+                            <div className="text-slate-400">
+                              {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                            </div>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  ))
+
+                        {isExpanded && (
+                          <div className="border-t border-slate-100 bg-slate-50/80 px-5 py-4">
+                            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+                              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                <div className="rounded-xl border border-slate-100 bg-white/75 p-3">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Claim Number</p>
+                                  <p className="mt-1 text-sm font-medium text-slate-800">{claim.claimNumber || claim.id}</p>
+                                </div>
+                                <div className="rounded-xl border border-slate-100 bg-white/75 p-3">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Invoice Number</p>
+                                  <p className="mt-1 text-sm font-medium text-slate-800">{claim.invoiceNumber || "Not submitted"}</p>
+                                </div>
+                                <div className="rounded-xl border border-slate-100 bg-white/75 p-3">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Treatment Date</p>
+                                  <p className="mt-1 text-sm font-medium text-slate-800">{formatDateDisplay(claim.treatmentDate)}</p>
+                                </div>
+                                <div className="rounded-xl border border-slate-100 bg-white/75 p-3">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Submitted</p>
+                                  <p className="mt-1 text-sm font-medium text-slate-800">
+                                    {claim.submittedAt ? formatDateDisplay(claim.submittedAt) : "Not recorded"}
+                                  </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-100 bg-white/75 p-3">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Reviewed</p>
+                                  <p className="mt-1 text-sm font-medium text-slate-800">
+                                    {claim.reviewedAt ? formatDateDisplay(claim.reviewedAt) : "Pending review"}
+                                  </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-100 bg-white/75 p-3">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Payment Completed</p>
+                                  <p className="mt-1 text-sm font-medium text-slate-800">
+                                    {claim.approvedAt ? formatDateDisplay(claim.approvedAt) : "Not completed"}
+                                  </p>
+                                </div>
+                                <div className="rounded-xl border border-slate-100 bg-white/75 p-3 md:col-span-2 xl:col-span-3">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Status Detail</p>
+                                  <p className="mt-1 text-sm text-slate-700">{formatStatusDetail(claim)}</p>
+                                  {claim.reviewNote && normalizedStatus !== "submitted" && normalizedStatus !== "in_process" ? (
+                                    <p className="mt-2 text-xs text-slate-500">Admin note: {claim.reviewNote}</p>
+                                  ) : null}
+                                  {normalizedStatus === "in_process" && claim.reviewNote ? (
+                                    <p className="mt-2 text-xs text-slate-500">Admin note: {claim.reviewNote}</p>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col gap-3 lg:min-w-[220px]">
+                                {normalizedStatus === "request_additional_information" ? (
+                                  <Link href={`/provider/invoices?editProviderClaimId=${claim.id}`}>
+                                    <GlassButton variant="secondary" className="h-9 w-full px-4 text-sm">
+                                      Update Submission
+                                    </GlassButton>
+                                  </Link>
+                                ) : null}
+                                {canDownloadPv ? (
+                                  <GlassButton
+                                    variant="secondary"
+                                    className="h-9 w-full gap-2 px-4 text-sm"
+                                    onClick={() => openApprovalAttachment(claim.approvalAttachmentPath!)}
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                    Download PV
+                                  </GlassButton>
+                                ) : null}
+                                {missingPv ? (
+                                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                    PV not uploaded for this approved record.
+                                  </div>
+                                ) : null}
+                                <div className="rounded-xl border border-white/80 bg-white/70 p-3">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Lifecycle State</p>
+                                  <p className="mt-1 text-sm font-semibold text-slate-800">
+                                    {formatProviderSubmissionStatus(claim.status)}
+                                  </p>
+                                  <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                    {normalizedStatus === "approved"
+                                      ? "This record represents completed payment in the unified history."
+                                      : normalizedStatus === "in_process"
+                                        ? "Finance or payment handling is still underway."
+                                        : normalizedStatus === "request_additional_information"
+                                          ? "Provider action is needed before the claim can continue."
+                                          : normalizedStatus === "rejected"
+                                            ? "The lifecycle has ended without payment completion."
+                                            : "The invoice is still waiting for admin review."}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 ) : (
                   <div className="px-5 py-10 text-center text-sm text-slate-500">
-                    No paid batches match the current search or filter.
+                    No provider invoices match the current search or filter.
                   </div>
                 )}
               </div>
@@ -446,220 +576,118 @@ export default function PaymentHistoryPage() {
           }
           mobile={
             <div className="mt-5 space-y-3">
-              {filteredBatches.length ? (
-                filteredBatches.map((batch) => (
-                  <MobileRecordCard
-                    key={batch.id}
-                    title={batch.id}
-                    subtitle={`${formatDateDisplay(batch.date)} • ${batch.slipFileName}`}
-                    badge={
-                      <span className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                        {batch.status}
-                      </span>
-                    }
-                    footer={
-                      <div className="flex items-center justify-between gap-3">
-                        <GlassButton variant="ghost" className="h-8 px-3 text-sky-600" onClick={() => toggleExpand(batch.id)}>
-                          {expandedPv === batch.id ? "Hide Claims" : "View Claims"}
-                        </GlassButton>
-                        <span className="text-sm font-bold text-slate-800">{formatCurrency(batch.amount)}</span>
-                      </div>
-                    }
-                  >
-                    {expandedPv === batch.id ? (
-                      <div className="space-y-3">
-                        {batch.claims.map((claim) => (
-                          <div key={claim.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-800">{claim.id}</p>
-                                <p className="text-xs text-slate-500">
-                                  {claim.patient} • {formatDateDisplay(claim.visitDate)}
-                                </p>
-                              </div>
-                              <p className="text-sm font-bold text-slate-800">{formatCurrency(claim.amount)}</p>
-                            </div>
-                            <p className="mt-2 text-xs text-slate-600">{claim.serviceType}</p>
-                            <p className="mt-1 text-xs text-slate-500">{claim.diagnosis}</p>
-                            <div className="mt-3 rounded-lg border border-white/60 bg-white/60 p-2">
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">PV</p>
-                              {claim.pvFileName && claim.pvDataUrl ? (
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  <GlassButton
-                                    variant="secondary"
-                                    className="h-8 gap-2 px-3 text-xs"
-                                    onClick={() => openDataUrlInNewTab(claim.pvDataUrl!)}
-                                  >
-                                    <ExternalLink className="h-4 w-4" />
-                                    Open PV
-                                  </GlassButton>
-                                  <GlassButton
-                                    className="h-8 gap-2 px-3 text-xs"
-                                    onClick={() => downloadDataUrlFile(claim.pvDataUrl!, claim.pvFileName!)}
-                                  >
-                                    <Download className="h-4 w-4" />
-                                    Download PV
-                                  </GlassButton>
-                                </div>
-                              ) : (
-                                <p className="mt-1 text-xs text-slate-500">Not uploaded</p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                        <GlassButton
-                          variant="secondary"
-                          className="w-full gap-2"
-                          onClick={() => downloadText(`payment-${batch.id}.csv`, buildStatementCsv(batch), "text/csv")}
+              {filteredClaims.length ? (
+                filteredClaims.map((claim) => {
+                  const normalizedStatus = normalizeProviderSubmissionStatus(claim.status);
+                  const canDownloadPv = canDownloadPvForClaim(claim.status, claim.approvalAttachmentPath);
+                  const missingPv = isApprovedWithoutPv(claim.status, claim.approvalAttachmentPath);
+                  const isExpanded = expandedClaimId === claim.id;
+                  return (
+                    <MobileRecordCard
+                      key={claim.id}
+                      title={claim.claimNumber || claim.invoiceNumber || claim.id}
+                      subtitle={`${claim.patientName || "Unknown patient"} | ${formatDateDisplay(claim.treatmentDate)}`}
+                      badge={
+                        <span
+                          className={cn(
+                            "inline-flex items-center justify-center rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                            getProviderSubmissionStatusClasses(claim.status)
+                          )}
                         >
-                          <Download className="h-4 w-4" />
-                          Download Statement
-                        </GlassButton>
+                          {formatProviderSubmissionStatus(claim.status)}
+                        </span>
+                      }
+                      footer={
+                        <div className="flex items-center justify-between gap-3">
+                          <GlassButton variant="ghost" className="h-8 px-3 text-sky-600" onClick={() => toggleExpand(claim.id)}>
+                            {isExpanded ? "Hide Details" : "View Details"}
+                          </GlassButton>
+                          <span className="text-sm font-bold text-slate-800">{formatCurrency(claim.totalAmount)}</span>
+                        </div>
+                      }
+                    >
+                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Status Detail</p>
+                        <p className="mt-1 text-sm text-slate-700">{formatStatusDetail(claim)}</p>
                       </div>
-                    ) : (
-                      <>
-                        <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Claims Count</p>
-                          <p className="mt-1 text-sm text-slate-700">{batch.claims.length}</p>
+
+                      {isExpanded ? (
+                        <div className="space-y-3">
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Invoice Number</p>
+                            <p className="mt-1 text-sm text-slate-700">{claim.invoiceNumber || "Not submitted"}</p>
+                          </div>
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Submitted</p>
+                            <p className="mt-1 text-sm text-slate-700">
+                              {claim.submittedAt ? formatDateDisplay(claim.submittedAt) : "Not recorded"}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Reviewed</p>
+                            <p className="mt-1 text-sm text-slate-700">
+                              {claim.reviewedAt ? formatDateDisplay(claim.reviewedAt) : "Pending review"}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Payment Completed</p>
+                            <p className="mt-1 text-sm text-slate-700">
+                              {claim.approvedAt ? formatDateDisplay(claim.approvedAt) : "Not completed"}
+                            </p>
+                          </div>
+                          {claim.reviewNote ? (
+                            <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Admin Note</p>
+                              <p className="mt-1 text-sm text-slate-700">{claim.reviewNote}</p>
+                            </div>
+                          ) : null}
+                          {normalizedStatus === "request_additional_information" ? (
+                            <Link href={`/provider/invoices?editProviderClaimId=${claim.id}`}>
+                              <GlassButton variant="secondary" className="h-9 w-full px-4 text-sm">
+                                Update Submission
+                              </GlassButton>
+                            </Link>
+                          ) : null}
+                          {canDownloadPv ? (
+                            <GlassButton
+                              variant="secondary"
+                              className="h-9 w-full gap-2 px-4 text-sm"
+                              onClick={() => openApprovalAttachment(claim.approvalAttachmentPath!)}
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                              Download PV
+                            </GlassButton>
+                          ) : null}
+                          {missingPv ? (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                              PV not uploaded for this approved record.
+                            </div>
+                          ) : null}
                         </div>
-                        <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Settlement Notice</p>
-                          <p className="mt-1 text-sm text-slate-700">{batch.noticeNo}</p>
-                        </div>
-                      </>
-                    )}
-                  </MobileRecordCard>
-                ))
+                      ) : (
+                        <>
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Service Type</p>
+                            <p className="mt-1 text-sm text-slate-700">{claim.serviceType || "General Medical"}</p>
+                          </div>
+                          <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Lifecycle State</p>
+                            <p className="mt-1 text-sm text-slate-700">{formatProviderSubmissionStatus(claim.status)}</p>
+                          </div>
+                        </>
+                      )}
+                    </MobileRecordCard>
+                  );
+                })
               ) : (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 p-6 text-center text-sm text-slate-500">
-                  No paid batches match the current search or filter.
+                  No provider invoices match the current search or filter.
                 </div>
               )}
             </div>
           }
         />
       </GlassCard>
-
-      <ResponsiveDataView
-        desktop={
-          <GlassCard className="overflow-hidden border-white/80 bg-white/78 p-0 shadow-lg shadow-sky-100/30">
-            <div className="border-b border-white/70 bg-white/50 px-5 py-4">
-              <h2 className="font-bold text-slate-900">Settlement Notices</h2>
-              <p className="text-xs text-slate-500">Derived from released claim batches using the current approval logic.</p>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {settlementNotices.length ? (
-                settlementNotices.map((notice) => (
-                  <div key={notice.noticeNo} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">{notice.noticeNo}</p>
-                      <p className="text-xs text-slate-500">
-                        {notice.pv} • Issued {formatDateDisplay(notice.issuedOn)}
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-3 gap-4 text-xs">
-                      <div>
-                        <p className="text-slate-400">Gross</p>
-                        <p className="font-semibold text-slate-700">{formatCurrency(notice.gross)}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400">Adjustment</p>
-                        <p className="font-semibold text-amber-700">{formatCurrency(notice.adjustment)}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400">Net</p>
-                        <p className="font-bold text-emerald-700">{formatCurrency(notice.net)}</p>
-                      </div>
-                    </div>
-                    <GlassButton
-                      variant="secondary"
-                      className="gap-2"
-                      onClick={() =>
-                        downloadText(
-                          `${notice.noticeNo}.txt`,
-                          [
-                            `Settlement Notice: ${notice.noticeNo}`,
-                            `Payment Voucher: ${notice.pv}`,
-                            `Issued On: ${formatDateDisplay(notice.issuedOn)}`,
-                            `Gross: ${formatCurrency(notice.gross)}`,
-                            `Adjustment: ${formatCurrency(notice.adjustment)}`,
-                            `Net: ${formatCurrency(notice.net)}`,
-                          ].join("\n")
-                        )
-                      }
-                    >
-                      <Download className="h-4 w-4" />
-                      Download Notice
-                    </GlassButton>
-                  </div>
-                ))
-              ) : (
-                <div className="px-5 py-10 text-center text-sm text-slate-500">
-                  No settlement notices available yet.
-                </div>
-              )}
-            </div>
-          </GlassCard>
-        }
-        mobile={
-          <div className="space-y-3">
-            <div className="px-1">
-              <h2 className="font-bold text-slate-800">Settlement Notices</h2>
-              <p className="text-xs text-slate-500">Derived from released claim batches using the current approval logic.</p>
-            </div>
-            {settlementNotices.length ? (
-              settlementNotices.map((notice) => (
-                <MobileRecordCard
-                  key={notice.noticeNo}
-                  title={notice.noticeNo}
-                  subtitle={`${notice.pv} • Issued ${formatDateDisplay(notice.issuedOn)}`}
-                  footer={
-                    <div className="flex justify-end">
-                      <GlassButton
-                        variant="secondary"
-                        className="gap-2"
-                        onClick={() =>
-                          downloadText(
-                            `${notice.noticeNo}.txt`,
-                            [
-                              `Settlement Notice: ${notice.noticeNo}`,
-                              `Payment Voucher: ${notice.pv}`,
-                              `Issued On: ${formatDateDisplay(notice.issuedOn)}`,
-                              `Gross: ${formatCurrency(notice.gross)}`,
-                              `Adjustment: ${formatCurrency(notice.adjustment)}`,
-                              `Net: ${formatCurrency(notice.net)}`,
-                            ].join("\n")
-                          )
-                        }
-                      >
-                        <Download className="h-4 w-4" />
-                        Download Notice
-                      </GlassButton>
-                    </div>
-                  }
-                >
-                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Gross</p>
-                    <p className="mt-1 text-sm text-slate-700">{formatCurrency(notice.gross)}</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Adjustment</p>
-                    <p className="mt-1 text-sm text-amber-700">{formatCurrency(notice.adjustment)}</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Net</p>
-                    <p className="mt-1 text-sm font-bold text-emerald-700">{formatCurrency(notice.net)}</p>
-                  </div>
-                </MobileRecordCard>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 p-6 text-center text-sm text-slate-500">
-                No settlement notices available yet.
-              </div>
-            )}
-          </div>
-        }
-      />
     </div>
   );
 }

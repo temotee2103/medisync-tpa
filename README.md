@@ -20,6 +20,22 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Supabase Setup (Required for Bulk Member Import)
+
+Create a local env file from `.env.example` and fill in:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+Bulk member import uses a Supabase Edge Function (`bulk_import_members`) and requires:
+- Database migrations applied (including `supabase/migrations/20260418_auth_foundation.sql` and `supabase/migrations/20260517_bulk_member_import.sql`)
+- Edge Function deployed with env vars set on Supabase:
+  - `SUPABASE_URL`
+  - `SUPABASE_ANON_KEY`
+  - `SUPABASE_SERVICE_ROLE_KEY`
+
+Admin login uses Supabase Auth. To access the admin console, the logged-in user must have a row in `public.profile_roles` with:
+- `portal_key = 'admin'`
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

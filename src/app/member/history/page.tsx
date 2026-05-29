@@ -13,150 +13,180 @@ import {
   ExternalLink
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { downloadDataUrlFile, openDataUrlInNewTab } from "@/lib/fileData";
 import { formatCurrency, formatDateDisplay } from "@/lib/formats";
-import { ensureMemberSeed, getMemberDirectory, getMemberSession } from "@/lib/memberSession";
-import { ensureCompanySeed, getCompanies } from "@/lib/companyStore";
 import {
-  ensureAdminClaimsSeed,
-  ensureMemberClaimsStore,
+  ensureMemberSeed,
+  getMemberDirectoryServerSnapshot,
+  getMemberDirectorySnapshot,
+  getMemberSeedLoading,
+  getMemberSession,
+  subscribeMemberDirectory,
+  subscribeMemberSession,
+} from "@/lib/memberSession";
+import { ensureCompaniesStore, getCompaniesServerSnapshot, getCompaniesSnapshot, subscribeCompanies } from "@/lib/companyStore";
+import {
   getAdminClaimsServerSnapshot,
   getAdminClaimsSnapshot,
   getMemberClaimsServerSnapshot,
   getMemberClaimsSnapshot,
-  normalizeClaimStatus,
+  refreshClaimsSnapshot,
   subscribeAdminClaims,
   subscribeMemberClaims,
 } from "@/lib/claimsStore";
 import { getMemberLimitOwnerStaffId } from "@/lib/memberPlan";
 import { ensureProviderSeed, getProviderById } from "@/lib/providerSession";
-import { getPanelVisitTransactions } from "@/lib/panelVisitStore";
+import {
+  ensurePanelVisitTransactionsStore,
+  getPanelVisitTransactionsServerSnapshot,
+  getPanelVisitTransactionsSnapshot,
+  subscribePanelVisitTransactions,
+} from "@/lib/panelVisitStore";
+import { formatUnifiedClaimStatus, normalizeUnifiedClaimStatus } from "@/lib/unifiedClaimLifecycle";
 
 type ClaimHistoryRecord = {
   key: string;
   id: string;
   hospital: string;
   amount: string;
+  lifecycleStatus: string;
   status: string;
   date: string;
   year: string;
   type: string;
   diagnosis: string;
-  source: "seeded" | "member_reimbursement" | "provider_cashless" | "panel_visit";
+  source: "member_reimbursement" | "provider_cashless" | "panel_visit";
   referenceId?: string;
   bankSlipFileName?: string;
   bankSlipDataUrl?: string;
   bankSlipUploadedAt?: string;
 };
 
+const parseDependentIdFromStaffId = (staffId: string) => {
+  const parts = staffId.split("-DEP-");
+  if (parts.length < 2) return "";
+  return (parts[1] || "").trim();
+};
+
 export default function MemberHistoryPage() {
-  ensureMemberSeed();
-  ensureCompanySeed();
-  ensureProviderSeed();
-  ensureAdminClaimsSeed();
-  ensureMemberClaimsStore();
-  const [filterStatus, setFilterStatus] = useState("All");
+  const isHydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+  const [filterStatus, setFilterStatus] = useState("all");
   const [filterYear, setFilterYear] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedClaimKey, setSelectedClaimKey] = useState<string | null>(null);
-  const memberSession = useSyncExternalStore(
-    () => () => {},
-    () => getMemberSession(),
-    () => null
+  const [historyError, setHistoryError] = useState("");
+
+  useEffect(() => {
+    ensureMemberSeed();
+    ensureCompaniesStore();
+    ensureProviderSeed();
+    ensurePanelVisitTransactionsStore();
+    void refreshClaimsSnapshot().catch((error) => {
+      setHistoryError(error instanceof Error ? error.message : "Unable to load claim history.");
+    });
+  }, []);
+
+  const memberSession = useSyncExternalStore(subscribeMemberSession, getMemberSession, () => null);
+  const memberSeedLoading = useSyncExternalStore(
+    subscribeMemberSession,
+    getMemberSeedLoading,
+    () => false
   );
+  const memberDirectory = useSyncExternalStore(
+    subscribeMemberDirectory,
+    getMemberDirectorySnapshot,
+    getMemberDirectoryServerSnapshot
+  );
+
   const memberStaffId = memberSession?.staffId ?? "";
   const memberCompanyId = memberSession?.companyId ?? "";
-  const submittedClaims = useSyncExternalStore(
-    subscribeMemberClaims,
-    getMemberClaimsSnapshot,
-    getMemberClaimsServerSnapshot
-  );
-  const adminClaims = useSyncExternalStore(
-    subscribeAdminClaims,
-    getAdminClaimsSnapshot,
-    getAdminClaimsServerSnapshot
-  );
-  const panelVisitTransactions = useSyncExternalStore(
-    () => () => {},
-    () => getPanelVisitTransactions(),
-    () => []
-  );
-
-  const claimsHistory = useMemo(() => {
-    const seeded: ClaimHistoryRecord[] = [
-      { 
-        key: "seeded:CLM-9901",
-        id: "CLM-9901", 
-        hospital: "City General Hospital", 
-        amount: "RM 1,250.00", 
-        status: "In review", 
-        date: "2024-01-28",
-        year: "2024",
-        type: "Rehabilitation",
-        diagnosis: "Acute Gastritis",
-        source: "seeded",
-      },
-      { 
-        key: "seeded:CLM-8842",
-        id: "CLM-8842", 
-        hospital: "St. Mary's Clinic", 
-        amount: "RM 450.00", 
-        status: "Approved", 
-        date: "2024-01-15",
-        year: "2024",
-        type: "Outpatient",
-        diagnosis: "Viral Fever",
-        source: "seeded",
-      },
-      { 
-        key: "seeded:CLM-8721",
-        id: "CLM-8721", 
-        hospital: "Dental Care Plus", 
-        amount: "RM 250.00", 
-        status: "Approved", 
-        date: "2023-12-22",
-        year: "2023",
-        type: "Dental",
-        diagnosis: "Scaling & Polishing",
-        source: "seeded",
-      },
-      { 
-        key: "seeded:CLM-8550",
-        id: "CLM-8550", 
-        hospital: "City General Hospital", 
-        amount: "RM 3,500.00", 
-        status: "Approved", 
-        date: "2023-11-10",
-        year: "2023",
-        type: "Rehabilitation",
-        diagnosis: "Appendicitis",
-        source: "seeded",
-      },
-      { 
-        key: "seeded:CLM-8100",
-        id: "CLM-8100", 
-        hospital: "Vision Eye Specialist", 
-        amount: "RM 180.00", 
-        status: "Rejected", 
-        date: "2023-10-05",
-        year: "2023",
-        type: "Optical",
-        diagnosis: "Routine Checkup",
-        source: "seeded",
-      },
-    ];
-
-    const memberDirectory = getMemberDirectory();
-    const companies = getCompanies();
+  const companies = useSyncExternalStore(subscribeCompanies, getCompaniesSnapshot, getCompaniesServerSnapshot);
+  const memberHistoryScope = useMemo(() => {
     const memberEntry =
       memberCompanyId && memberStaffId
         ? memberDirectory.find((entry) => entry.companyId === memberCompanyId && entry.staffId === memberStaffId) || null
         : null;
     const company = memberCompanyId ? companies.find((c) => c.companyId === memberCompanyId) || null : null;
-    const memberLimitOwnerStaffId =
-      getMemberLimitOwnerStaffId(memberEntry, company) || memberStaffId;
+    return {
+      companyId: memberCompanyId,
+      staffId: memberStaffId,
+      memberId: memberEntry?.memberUuid || memberSession?.memberId || "",
+      dependentId: parseDependentIdFromStaffId(memberStaffId),
+      memberKey: getMemberLimitOwnerStaffId(memberEntry, company) || memberStaffId,
+    };
+  }, [companies, memberCompanyId, memberDirectory, memberSession?.memberId, memberStaffId]);
 
+  const allSubmittedClaims = useSyncExternalStore(
+    subscribeMemberClaims,
+    getMemberClaimsSnapshot,
+    getMemberClaimsServerSnapshot
+  );
+  const allAdminClaims = useSyncExternalStore(
+    subscribeAdminClaims,
+    getAdminClaimsSnapshot,
+    getAdminClaimsServerSnapshot
+  );
+  const panelVisitTransactions = useSyncExternalStore(
+    subscribePanelVisitTransactions,
+    getPanelVisitTransactionsSnapshot,
+    getPanelVisitTransactionsServerSnapshot
+  );
+
+  const submittedClaims = useMemo(
+    () =>
+      allSubmittedClaims.filter((claim) => {
+        if (memberHistoryScope.companyId && claim.companyId && claim.companyId !== memberHistoryScope.companyId) {
+          return false;
+        }
+        if (memberHistoryScope.dependentId) {
+          return claim.dependentId === memberHistoryScope.dependentId;
+        }
+        if (memberHistoryScope.memberId && claim.memberId === memberHistoryScope.memberId) {
+          return true;
+        }
+        if (memberHistoryScope.staffId && claim.patientId === memberHistoryScope.staffId) {
+          return true;
+        }
+        return Boolean(
+          memberHistoryScope.memberKey &&
+            memberHistoryScope.staffId &&
+            claim.memberKey === memberHistoryScope.memberKey &&
+            claim.patientId === memberHistoryScope.staffId
+        );
+      }),
+    [allSubmittedClaims, memberHistoryScope]
+  );
+  const adminClaims = useMemo(
+    () =>
+      allAdminClaims.filter((claim) => {
+        if (memberHistoryScope.companyId && claim.companyId && claim.companyId !== memberHistoryScope.companyId) {
+          return false;
+        }
+        if (memberHistoryScope.dependentId) {
+          return claim.dependentId === memberHistoryScope.dependentId;
+        }
+        if (memberHistoryScope.memberId && claim.memberId === memberHistoryScope.memberId) {
+          return true;
+        }
+        if (memberHistoryScope.staffId && claim.patientId === memberHistoryScope.staffId) {
+          return true;
+        }
+        return Boolean(
+          memberHistoryScope.memberKey &&
+            memberHistoryScope.staffId &&
+            claim.memberKey === memberHistoryScope.memberKey &&
+            claim.patientId === memberHistoryScope.staffId
+        );
+      }),
+    [allAdminClaims, memberHistoryScope]
+  );
+
+  const claimsHistory = useMemo(() => {
     const normalizedSubmitted: ClaimHistoryRecord[] = submittedClaims.map((claim: {
       id: string;
       providerName?: string;
@@ -170,26 +200,21 @@ export default function MemberHistoryPage() {
       id: claim.id,
       hospital: claim.providerName || "Submitted Provider",
       amount: formatCurrency(claim.amountSubmitted),
-      status: normalizeClaimStatus(claim.status || "In review"),
+      lifecycleStatus: normalizeUnifiedClaimStatus(claim.status || "submitted"),
+      status: formatUnifiedClaimStatus(claim.status || "submitted"),
       date: claim.visitDate || new Date().toISOString().slice(0, 10),
       year: (claim.visitDate || new Date().toISOString().slice(0, 10)).slice(0, 4),
       type: `Reimbursement • ${claim.category || "Others"}`,
       diagnosis: claim.diagnosis || "Submitted from Member Portal",
       source: "member_reimbursement",
     }));
-    const normalizedAdmin: ClaimHistoryRecord[] = adminClaims
-      .filter((claim) => {
-        if (!memberStaffId) return false;
-        if (claim.patientId && claim.patientId === memberStaffId) return true;
-        if (claim.memberKey && claim.memberKey === memberLimitOwnerStaffId) return true;
-        return false;
-      })
-      .map((claim) => ({
+    const normalizedAdmin: ClaimHistoryRecord[] = adminClaims.map((claim) => ({
         key: `cashless:${claim.id}`,
         id: claim.id,
         hospital: claim.hospital,
         amount: formatCurrency(claim.amount),
-        status: normalizeClaimStatus(claim.status),
+        lifecycleStatus: normalizeUnifiedClaimStatus(claim.lifecycleStatus || claim.status),
+        status: formatUnifiedClaimStatus(claim.lifecycleStatus || claim.status),
         date: claim.date,
         year: claim.date.slice(0, 4),
         type: `Cashless • ${claim.serviceType || "Medical"}`,
@@ -202,21 +227,29 @@ export default function MemberHistoryPage() {
 
     const normalizedPanelVisits: ClaimHistoryRecord[] = panelVisitTransactions
       .filter((txn) => {
-        if (!memberStaffId) return false;
-        if (txn.patientId && txn.patientId === memberStaffId) return true;
-        if (txn.memberKey && txn.memberKey === memberLimitOwnerStaffId) return true;
+        if (!memberHistoryScope.staffId) return false;
+        if (txn.patientId && txn.patientId === memberHistoryScope.staffId) return true;
+        if (
+          txn.memberKey &&
+          txn.memberKey === memberHistoryScope.memberKey &&
+          memberHistoryScope.staffId === memberHistoryScope.memberKey
+        ) {
+          return true;
+        }
         return false;
       })
       .map((txn) => {
         const providerName = getProviderById(txn.providerId)?.providerName || txn.providerId;
         const visitDate = (txn.visitDateTime || txn.createdAt || new Date().toISOString()).slice(0, 10);
+        const panelVisitKey = txn.claimId || txn.id;
         return {
-          key: `panel:${txn.id}`,
+          key: `panel:${panelVisitKey}`,
           id: txn.claimId,
           referenceId: txn.id,
           hospital: providerName,
           amount: formatCurrency(txn.amount),
-          status: "In review",
+          lifecycleStatus: "submitted",
+          status: formatUnifiedClaimStatus("submitted"),
           date: visitDate,
           year: visitDate.slice(0, 4),
           type: `Panel Visit • ${txn.serviceType || "Visit"}`,
@@ -226,12 +259,12 @@ export default function MemberHistoryPage() {
       });
 
     const mergedClaims = new Map<string, ClaimHistoryRecord>();
-    [...seeded, ...normalizedSubmitted, ...normalizedAdmin, ...normalizedPanelVisits].forEach((claim) => {
+    [...normalizedSubmitted, ...normalizedAdmin, ...normalizedPanelVisits].forEach((claim) => {
       mergedClaims.set(claim.key, claim);
     });
 
     return Array.from(mergedClaims.values()).sort((left, right) => right.date.localeCompare(left.date));
-  }, [adminClaims, memberCompanyId, memberStaffId, panelVisitTransactions, submittedClaims]);
+  }, [adminClaims, memberHistoryScope.memberKey, memberHistoryScope.staffId, panelVisitTransactions, submittedClaims]);
 
   const yearOptions = useMemo(() => {
     const years = Array.from(new Set(claimsHistory.map((claim) => claim.year))).filter(Boolean);
@@ -240,9 +273,9 @@ export default function MemberHistoryPage() {
 
   const filteredClaims = useMemo(() => {
     const normalized = searchTerm.trim().toLowerCase();
-    const byStatus = filterStatus === "All" 
+    const byStatus = filterStatus === "all" 
       ? claimsHistory 
-      : claimsHistory.filter(claim => claim.status === filterStatus);
+      : claimsHistory.filter((claim) => claim.lifecycleStatus === filterStatus);
     const byYear =
       filterYear === "All" ? byStatus : byStatus.filter((claim) => claim.year === filterYear);
     if (!normalized) return byYear;
@@ -258,11 +291,12 @@ export default function MemberHistoryPage() {
   }, [claimsHistory, filterStatus, filterYear, searchTerm]);
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case "Approved": return "text-emerald-600 bg-emerald-100/50 border-emerald-200";
-      case "In progress": return "text-sky-600 bg-sky-100/50 border-sky-200";
-      case "In review": return "text-amber-600 bg-amber-100/50 border-amber-200";
-      case "Rejected": return "text-rose-600 bg-rose-100/50 border-rose-200";
+    switch (normalizeUnifiedClaimStatus(status)) {
+      case "approved": return "text-emerald-600 bg-emerald-100/50 border-emerald-200";
+      case "in_process": return "text-sky-600 bg-sky-100/50 border-sky-200";
+      case "request_additional_information": return "text-amber-700 bg-amber-100/50 border-amber-200";
+      case "rejected": return "text-rose-600 bg-rose-100/50 border-rose-200";
+      case "submitted": return "text-slate-600 bg-slate-100/50 border-slate-200";
       default: return "text-slate-600 bg-slate-100/50 border-slate-200";
     }
   };
@@ -270,6 +304,28 @@ export default function MemberHistoryPage() {
     () => filteredClaims.find((claim) => claim.key === selectedClaimKey) || null,
     [filteredClaims, selectedClaimKey]
   );
+
+  if (!isHydrated || memberSeedLoading) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white/80 px-6 py-5 text-sm text-slate-600 shadow-sm">
+        正在读取理赔历史，请稍候...
+      </div>
+    );
+  }
+
+  if (historyError) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Claim History</h1>
+          <p className="text-slate-500">View and track all your medical claims.</p>
+        </div>
+        <GlassCard className="p-6">
+          <p className="text-sm text-rose-600">{historyError}</p>
+        </GlassCard>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -307,18 +363,25 @@ export default function MemberHistoryPage() {
             ))}
           </select>
           <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
-            {["All", "In review", "In progress", "Approved", "Rejected"].map((status) => (
+            {[
+              { value: "all", label: "All" },
+              { value: "submitted", label: formatUnifiedClaimStatus("submitted") },
+              { value: "request_additional_information", label: formatUnifiedClaimStatus("request_additional_information") },
+              { value: "in_process", label: formatUnifiedClaimStatus("in_process") },
+              { value: "approved", label: formatUnifiedClaimStatus("approved") },
+              { value: "rejected", label: formatUnifiedClaimStatus("rejected") },
+            ].map((status) => (
               <button
-                key={status}
-                onClick={() => setFilterStatus(status)}
+                key={status.value}
+                onClick={() => setFilterStatus(status.value)}
                 className={cn(
                   "px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap",
-                  filterStatus === status 
+                  filterStatus === status.value
                     ? "bg-sky-500 text-white shadow-lg shadow-sky-500/30" 
                     : "bg-white/50 text-slate-600 hover:bg-white"
                 )}
               >
-                {status}
+                {status.label}
               </button>
             ))}
           </div>
@@ -362,9 +425,9 @@ export default function MemberHistoryPage() {
                   <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-sky-500 group-hover:text-white transition-colors">
                     <ChevronRight className="w-4 h-4" />
                   </div>
-                    <span className="text-[10px] font-medium text-slate-400">
-                      {claim.bankSlipDataUrl ? "Slip ready" : "No slip"}
-                    </span>
+                  <span className="text-[10px] font-medium text-slate-400">
+                    {claim.bankSlipDataUrl ? "Payment proof ready" : "No payment proof"}
+                  </span>
                 </div>
               </div>
             </div>
@@ -409,7 +472,7 @@ export default function MemberHistoryPage() {
               <p className="mt-1 text-sm text-slate-700">{selectedClaim.diagnosis}</p>
             </GlassCard>
             <GlassCard className="p-4">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Bank-In Slip</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Payment Proof</p>
               {selectedClaim.bankSlipDataUrl && selectedClaim.bankSlipFileName ? (
                 <div className="mt-2 space-y-3">
                   <div>
@@ -425,19 +488,21 @@ export default function MemberHistoryPage() {
                       onClick={() => openDataUrlInNewTab(selectedClaim.bankSlipDataUrl!)}
                     >
                       <ExternalLink className="h-4 w-4" />
-                      View Slip
+                      View Payment Proof
                     </GlassButton>
                     <GlassButton
                       className="gap-2"
                       onClick={() => downloadDataUrlFile(selectedClaim.bankSlipDataUrl!, selectedClaim.bankSlipFileName!)}
                     >
                       <Download className="h-4 w-4" />
-                      Download Slip
+                      Download Payment Proof
                     </GlassButton>
                   </div>
                 </div>
               ) : (
-                <p className="mt-1 text-sm text-slate-500">Slip is available after the claim is approved and finance uploads the bank-in slip.</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Payment proof becomes available after the claim reaches the final `approved` step in Accountant Workspace.
+                </p>
               )}
             </GlassCard>
           </div>

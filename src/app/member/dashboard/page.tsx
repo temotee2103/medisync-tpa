@@ -17,8 +17,8 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatDateDisplay } from "@/lib/formats";
-import { ensureCompanySeed, getCompanies } from "@/lib/companyStore";
-import { ensureMemberSeed, getMemberDirectory, getMemberSession } from "@/lib/memberSession";
+import { ensureCompaniesStore, getCompaniesServerSnapshot, getCompaniesSnapshot, subscribeCompanies } from "@/lib/companyStore";
+import { ensureMemberSeed, getMemberDirectory, getMemberSession, subscribeMemberSession } from "@/lib/memberSession";
 import {
   ensureMemberClaimsStore,
   getMemberClaimsServerSnapshot,
@@ -27,19 +27,17 @@ import {
 } from "@/lib/claimsStore";
 import { getCategoryBalanceBreakdown } from "@/lib/categoryBalance";
 import { getMemberLimitOwnerStaffId } from "@/lib/memberPlan";
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 export default function CustomerDashboard() {
-  ensureMemberSeed();
-  ensureCompanySeed();
-  ensureMemberClaimsStore();
+  useEffect(() => {
+    void ensureMemberSeed();
+    ensureCompaniesStore();
+    ensureMemberClaimsStore();
+  }, []);
 
   const memberName = useSyncExternalStore(
-    (onStoreChange) => {
-      if (typeof window === "undefined") return () => {};
-      window.addEventListener("storage", onStoreChange);
-      return () => window.removeEventListener("storage", onStoreChange);
-    },
+    subscribeMemberSession,
     () => getMemberSession()?.fullName ?? "Member",
     () => "Member"
   );
@@ -48,8 +46,9 @@ export default function CustomerDashboard() {
     getMemberClaimsSnapshot,
     getMemberClaimsServerSnapshot
   );
+  const companies = useSyncExternalStore(subscribeCompanies, getCompaniesSnapshot, getCompaniesServerSnapshot);
   const memberSession = getMemberSession();
-  const company = memberSession ? getCompanies().find((c) => c.companyId === memberSession.companyId) ?? null : null;
+  const company = memberSession ? companies.find((c) => c.companyId === memberSession.companyId) ?? null : null;
   const currentMember = getMemberDirectory().find(
     (entry) =>
       entry.companyId === memberSession?.companyId &&

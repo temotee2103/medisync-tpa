@@ -21,57 +21,34 @@ import {
   XCircle,
   Users
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { ensureMemberSeed, getMemberDirectory } from "@/lib/memberSession";
-import { ensureCompanySeed, getCompanies, saveCompany } from "@/lib/companyStore";
+import {
+  ensureCompaniesStore,
+  getCompaniesServerSnapshot,
+  getCompaniesSnapshot,
+  subscribeCompanies,
+  upsertCompany,
+} from "@/lib/companyStore";
 
-// Mock Data
-const POLICIES = [
-  { 
-    id: "POL-8823-01", 
-    companyId: "CMP-001",
-    companyName: "TechCorp Malaysia",
-    holder: "John Doe", 
-    plan: "Gold Family Plus", 
-    status: "Active", 
-    expiry: "2024-12-31",
-    nric: "850312-14-5567",
-    coverage: { used: 1250, limit: 50000 },
-    dependents: ["Jane Doe (Spouse)", "Jimmy Doe (Child)"]
-  },
-  { 
-    id: "POL-9944-05", 
-    companyId: "CMP-002",
-    companyName: "LogiTrans Global",
-    holder: "Sarah Williams", 
-    plan: "Silver Corporate", 
-    status: "Active", 
-    expiry: "2024-06-15",
-    nric: "921015-10-1234",
-    coverage: { used: 0, limit: 20000 },
-    dependents: []
-  },
-  { 
-    id: "POL-1122-09", 
-    companyId: "CMP-001",
-    companyName: "TechCorp Malaysia",
-    holder: "Michael Tan", 
-    plan: "Platinum Global", 
-    status: "Lapsed", 
-    expiry: "2023-11-20",
-    nric: "780520-01-8899",
-    coverage: { used: 15000, limit: 100000 },
-    dependents: ["Alice Tan (Spouse)"]
-  },
-];
-
-type PolicyRecord = typeof POLICIES[number];
+type PolicyRecord = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  holder: string;
+  plan: string;
+  status: "Active" | "Lapsed";
+  expiry: string;
+  nric: string;
+  coverage: { used: number; limit: number };
+  dependents: string[];
+};
 
 export default function PolicySearchPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [companyFilter, setCompanyFilter] = useState("all");
-  const [policies, setPolicies] = useState<PolicyRecord[]>(POLICIES);
+  const [policies, setPolicies] = useState<PolicyRecord[]>([]);
   const [selectedPolicy, setSelectedPolicy] = useState<PolicyRecord | null>(null);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -122,10 +99,8 @@ export default function PolicySearchPage() {
     ensureMemberSeed();
     return getMemberDirectory();
   })();
-  const companies = (() => {
-    ensureCompanySeed();
-    return getCompanies();
-  })();
+  ensureCompaniesStore();
+  const companies = useSyncExternalStore(subscribeCompanies, getCompaniesSnapshot, getCompaniesServerSnapshot);
   const companyMap = useMemo(() => {
     return new Map(companies.map((company) => [company.companyId, company.name]));
   }, [companies]);
@@ -174,11 +149,11 @@ export default function PolicySearchPage() {
     setIsEditModalOpen(true);
   };
 
-  const savePolicyConfigChanges = () => {
+  const savePolicyConfigChanges = async () => {
     if (!selectedPolicy) return;
     const company = companies.find((entry) => entry.companyId === selectedPolicy.companyId);
     if (!company) return;
-    saveCompany({
+    await upsertCompany({
       ...company,
       planConfig: {
         ...company.planConfig,
@@ -345,7 +320,7 @@ export default function PolicySearchPage() {
       </div>
 
       {isAddPolicyModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm transition-all duration-300">
           <div className="absolute inset-0" onClick={() => setIsAddPolicyModalOpen(false)} />
           <GlassCard className="w-full max-w-3xl p-0 shadow-2xl border-white/80 bg-white/95 backdrop-blur-xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-hidden flex flex-col ring-1 ring-black/5 relative">
             <div className="px-8 py-6 border-b border-slate-200/60 bg-white/50 backdrop-blur-md flex justify-between items-center sticky top-0 z-20">
@@ -458,7 +433,7 @@ export default function PolicySearchPage() {
       )}
 
       {isInfoModalOpen && selectedPolicy && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm transition-all duration-300">
           <div className="absolute inset-0" onClick={() => setIsInfoModalOpen(false)} />
           <GlassCard className="w-full max-w-4xl p-0 shadow-2xl border-white/80 bg-white/95 backdrop-blur-xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-hidden flex flex-col ring-1 ring-black/5 relative">
             <div className="px-8 py-6 border-b border-slate-200/60 bg-white/50 backdrop-blur-md flex justify-between items-center sticky top-0 z-20">
@@ -577,7 +552,7 @@ export default function PolicySearchPage() {
 
       {/* Plan Adjustment Modal */}
       {isEditModalOpen && selectedPolicy && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm transition-all duration-300">
           <div className="absolute inset-0" onClick={() => setIsEditModalOpen(false)} />
           <GlassCard className="w-full max-w-4xl p-0 shadow-2xl border-white/80 bg-white/95 backdrop-blur-xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-hidden flex flex-col ring-1 ring-black/5 relative">
             

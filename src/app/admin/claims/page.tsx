@@ -7,174 +7,171 @@ import { MobileRecordCard } from "@/components/ui/MobileRecordCard";
 import { MobileDetailModal } from "@/components/ui/MobileDetailModal";
 import {
   Search,
-  ArrowRight,
   RotateCcw,
   SlidersHorizontal,
+  Eye,
+  Clock3,
   XCircle,
   AlertTriangle,
-  CheckCircle2,
   Trash2,
-  Mail,
-  Phone,
   Calendar,
-  CreditCard,
-  ShieldCheck,
   Building2,
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { type ChangeEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { readFileAsDataUrl } from "@/lib/fileData";
-import { formatCurrency, formatDateDisplay, formatPhoneForDisplay } from "@/lib/formats";
-import { getAdminSession } from "@/lib/adminSession";
+import { type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { formatCurrency, formatDateDisplay } from "@/lib/formats";
+import { fetchAdminSession, type AdminSession } from "@/lib/adminSession";
 import { ensureMemberSeed, getMemberDirectory } from "@/lib/memberSession";
-import { ensureCompanySeed, getCompanies } from "@/lib/companyStore";
-import { ensureProviderSeed, getProviderDirectory } from "@/lib/providerSession";
+import { ensureCompaniesStore, getCompaniesServerSnapshot, getCompaniesSnapshot, subscribeCompanies } from "@/lib/companyStore";
 import {
-  countConfiguredPlanLimits,
-  countSelectedPlanBenefits,
   formatPlanTypeLabel,
   resolveMemberPlan,
 } from "@/lib/memberPlan";
 import { notifyClaimStatusEmail } from "@/lib/claimNotifications";
 import {
   addAdminClaimRequest,
-  deleteAdminClaim as removeAdminClaim,
   deleteMemberClaim as removeMemberClaim,
-  ensureAdminClaimsSeed,
-  getAdminClaimsServerSnapshot,
-  getAdminClaimsSnapshot,
   getMemberClaimsServerSnapshot,
   getMemberClaimsSnapshot,
   ensureMemberClaimsStore,
   refreshMemberClaimsSnapshot,
-  refreshAdminClaimsSnapshot,
   removeAdminClaimRequest,
-  subscribeAdminClaims,
   subscribeMemberClaims,
-  type AdminClaimRecord,
   type MemberClaimRecord,
-  updateAdminClaimStatus as saveAdminClaimStatus,
   updateMemberClaimStatus as saveMemberClaimStatus,
 } from "@/lib/claimsStore";
+import { CLAIM_STATUS } from "@/lib/claimFlow";
+import {
+  ensureProviderClaimsStore,
+  getProviderClaimsServerSnapshot,
+  getProviderClaimsSnapshot,
+  refreshProviderClaimsSnapshot,
+  subscribeProviderClaims,
+  type ProviderClaimRecord,
+  updateProviderClaimLifecycle,
+} from "@/lib/providerClaimsStore";
+import {
+  formatUnifiedClaimStatus,
+  normalizeUnifiedClaimStatus,
+  type UnifiedClaimStatus,
+  UNIFIED_CLAIM_STATUSES,
+} from "@/lib/unifiedClaimLifecycle";
+import { canDeleteAdminResource, canOperateAdminPage } from "@/lib/adminPermissions";
 
 const getPrimaryStaffId = (staffId: string) =>
   staffId.includes("-DEP-") ? staffId.split("-DEP-")[0] : staffId;
 
-const getStatusBadgeClass = (status: string) => {
-  switch (status) {
-    case "Approved":
+const getLifecycleBadgeClass = (status?: string) => {
+  switch (normalizeUnifiedClaimStatus(status)) {
+    case "approved":
       return "bg-emerald-100 text-emerald-700";
-    case "Rejected":
+    case "rejected":
       return "bg-rose-100 text-rose-700";
-    case "In progress":
+    case "in_process":
       return "bg-sky-100 text-sky-700";
-    case "In review":
-    default:
+    case "request_additional_information":
       return "bg-amber-100 text-amber-700";
+    case "submitted":
+    default:
+      return "bg-slate-100 text-slate-700";
   }
 };
 
-const MOCK_MEMBER_DEPENDENTS: Record<
-  string,
-  Array<{
-    name: string;
-    relation: string;
-    status: string;
-    gender: string;
-    dob: string;
-  }>
-> = {
-  "John Doe": [
-    { name: "Jane Doe", relation: "Spouse", status: "Active", gender: "Female", dob: "1992-01-01" },
-    { name: "Baby Doe", relation: "Child", status: "Active", gender: "Male", dob: "2022-10-10" },
-  ],
-  "Sarah Ng": [{ name: "Daniel Ng", relation: "Child", status: "Active", gender: "Male", dob: "2018-03-14" }],
+const PROVIDER_LIFECYCLE_STATUSES = [
+  "submitted",
+  "request_additional_information",
+  "in_process",
+  "approved",
+  "rejected",
+] as const;
+
+const getProviderLifecycleTimestamp = (claim: ProviderClaimRecord) =>
+  claim.approvedAt || claim.reviewedAt || claim.submittedAt || claim.createdAt || claim.treatmentDate || "";
+
+type ProviderLifecycleDialogAction = "rejected" | "request_additional_information";
+
+type ClaimTarget = { id: string };
+type ClaimsTab = "member" | "vendor";
+type LifecycleFilterValue = "all" | UnifiedClaimStatus;
+type LifecycleRow = {
+  id: string;
+  claimNumber: string;
+  displayName: string;
+  providerLabel: string;
+  timestamp: string;
+  amount: number;
+  status: UnifiedClaimStatus;
+  openHref?: string;
+  onOpen?: () => void;
+  actions: ReactNode;
 };
 
-type ClaimScope = "member" | "vendor";
-type ClaimTarget = { id: string; scope: ClaimScope };
-type AnyClaimRecord = AdminClaimRecord | MemberClaimRecord;
+const getClaimSubmittedAmount = (claim: MemberClaimRecord) => Number(claim.amountSubmitted) || 0;
 
-const getClaimSubmittedAt = (claim: AnyClaimRecord) =>
-  "amountSubmitted" in claim ? claim.createdAt || claim.visitDate : claim.submittedAt || claim.createdAt || claim.date;
+const getMemberLifecycleTimestamp = (claim: MemberClaimRecord) =>
+  claim.auditTrail?.[claim.auditTrail.length - 1]?.at || claim.createdAt || claim.visitDate;
 
-const getClaimSubmittedAmount = (claim: AnyClaimRecord) =>
-  "amountSubmitted" in claim ? Number(claim.amountSubmitted) || 0 : claim.amount;
+const canMarkInProcess = (status?: string) => normalizeUnifiedClaimStatus(status) === "submitted";
+
+const canRequestAdditionalInformation = (status?: string) =>
+  ["submitted", "in_process"].includes(normalizeUnifiedClaimStatus(status));
+
+const canReject = (status?: string) =>
+  ["submitted", "in_process", "request_additional_information"].includes(normalizeUnifiedClaimStatus(status));
 
 export default function ClaimsListPage() {
-  const [adminSession, setAdminSession] = useState<ReturnType<typeof getAdminSession>>(null);
-  const [activeTab, setActiveTab] = useState<"member" | "vendor">("member");
-  const isSuperAdmin = adminSession?.role === "super_admin";
-  const vendorClaims = useSyncExternalStore(
-    subscribeAdminClaims,
-    getAdminClaimsSnapshot,
-    getAdminClaimsServerSnapshot
-  );
+  const [adminSession, setAdminSession] = useState<AdminSession | null>(null);
   const memberClaims = useSyncExternalStore(
     subscribeMemberClaims,
     getMemberClaimsSnapshot,
     getMemberClaimsServerSnapshot
   );
+  const providerClaimsSnapshot = useSyncExternalStore(
+    subscribeProviderClaims,
+    getProviderClaimsSnapshot,
+    getProviderClaimsServerSnapshot
+  );
+  const [activeTab, setActiveTab] = useState<ClaimsTab>("member");
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState<LifecycleFilterValue>("all");
   const [providerFilter, setProviderFilter] = useState("All");
   const [requestingClaimTarget, setRequestingClaimTarget] = useState<ClaimTarget | null>(null);
   const [rejectingClaimTarget, setRejectingClaimTarget] = useState<ClaimTarget | null>(null);
-  const [approvingClaimTarget, setApprovingClaimTarget] = useState<ClaimTarget | null>(null);
   const [selectedMemberClaimId, setSelectedMemberClaimId] = useState<string | null>(null);
-  const [selectedPatientClaimId, setSelectedPatientClaimId] = useState<string | null>(null);
   const [requestNote, setRequestNote] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
-  const [bankSlipFile, setBankSlipFile] = useState<{ name: string; dataUrl: string } | null>(null);
-  const [approvalError, setApprovalError] = useState("");
   const [lastRequestToken, setLastRequestToken] = useState("");
+  const [memberLifecycleError, setMemberLifecycleError] = useState("");
+  const [memberLifecycleSubmittingId, setMemberLifecycleSubmittingId] = useState("");
+  const [providerSubmissionError, setProviderSubmissionError] = useState("");
+  const [providerLifecycleSubmittingId, setProviderLifecycleSubmittingId] = useState("");
+  const [providerLifecycleDialog, setProviderLifecycleDialog] = useState<{
+    claimId: string;
+    action: Exclude<ProviderLifecycleDialogAction, "approved">;
+  } | null>(null);
+  const [providerLifecycleNote, setProviderLifecycleNote] = useState("");
   const memberDirectory = useMemo(() => {
     ensureMemberSeed();
     return getMemberDirectory();
   }, []);
-  const providerDirectory = useMemo(() => {
-    ensureProviderSeed();
-    return getProviderDirectory();
-  }, []);
-  const companies = useMemo(() => {
-    ensureCompanySeed();
-    return getCompanies();
-  }, []);
+  const companies = useSyncExternalStore(subscribeCompanies, getCompaniesSnapshot, getCompaniesServerSnapshot);
+  const canOperateClaimsPage = adminSession ? canOperateAdminPage(adminSession.role, "/admin/claims") : false;
+  const canDeleteClaims = adminSession ? canDeleteAdminResource(adminSession.role) : false;
 
   useEffect(() => {
-    setAdminSession(getAdminSession());
-    ensureAdminClaimsSeed();
+    void fetchAdminSession().then((session) => setAdminSession(session));
+    ensureCompaniesStore();
     ensureMemberClaimsStore();
-    refreshAdminClaimsSnapshot();
+    ensureProviderClaimsStore();
     refreshMemberClaimsSnapshot();
+    void refreshProviderClaimsSnapshot();
   }, []);
-
-  const providerOptions = useMemo(
-    () =>
-      activeTab === "member"
-        ? ["All", ...Array.from(new Set(memberClaims.map((claim) => claim.providerName))).sort()]
-        : ["All", ...Array.from(new Set(vendorClaims.map((claim) => claim.hospital))).sort()],
-    [activeTab, memberClaims, vendorClaims]
-  );
-
-  const filteredVendorClaims = useMemo(() => {
-    const normalizedSearch = searchTerm.trim().toLowerCase();
-    return vendorClaims.filter((claim) => {
-      const matchesSearch =
-        !normalizedSearch ||
-        claim.patient.toLowerCase().includes(normalizedSearch) ||
-        claim.id.toLowerCase().includes(normalizedSearch) ||
-        claim.hospital.toLowerCase().includes(normalizedSearch);
-      const matchesStatus = statusFilter === "All" || claim.status === statusFilter;
-      const matchesProvider = providerFilter === "All" || claim.hospital === providerFilter;
-      return matchesSearch && matchesStatus && matchesProvider;
-    });
-  }, [providerFilter, searchTerm, statusFilter, vendorClaims]);
 
   const filteredMemberClaims = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
     return memberClaims.filter((claim) => {
+      const lifecycleStatus = claim.lifecycleStatus || normalizeUnifiedClaimStatus(claim.status);
       const matchesSearch =
         !normalizedSearch ||
         claim.patient.toLowerCase().includes(normalizedSearch) ||
@@ -182,57 +179,81 @@ export default function ClaimsListPage() {
         claim.providerName.toLowerCase().includes(normalizedSearch) ||
         claim.invoiceReceiptNo.toLowerCase().includes(normalizedSearch) ||
         claim.category.toLowerCase().includes(normalizedSearch);
-      const matchesStatus = statusFilter === "All" || claim.status === statusFilter;
+      const matchesStatus = statusFilter === "all" || lifecycleStatus === statusFilter;
       const matchesProvider = providerFilter === "All" || claim.providerName === providerFilter;
       return matchesSearch && matchesStatus && matchesProvider;
     });
   }, [memberClaims, providerFilter, searchTerm, statusFilter]);
+  const providerSubmissions = useMemo(
+    () =>
+      providerClaimsSnapshot
+        .filter((claim) =>
+          PROVIDER_LIFECYCLE_STATUSES.includes(
+            normalizeUnifiedClaimStatus(claim.status) as (typeof PROVIDER_LIFECYCLE_STATUSES)[number]
+          )
+        )
+        .sort((left, right) => {
+          const leftTime = new Date(getProviderLifecycleTimestamp(left)).getTime();
+          const rightTime = new Date(getProviderLifecycleTimestamp(right)).getTime();
+          return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+        }),
+    [providerClaimsSnapshot]
+  );
+  const filteredProviderSubmissions = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    return providerSubmissions.filter((claim) => {
+      const lifecycleStatus = normalizeUnifiedClaimStatus(claim.status);
+      const claimNumber = claim.claimNumber || claim.id;
+      const matchesSearch =
+        !normalizedSearch ||
+        claimNumber.toLowerCase().includes(normalizedSearch) ||
+        (claim.patientName || "").toLowerCase().includes(normalizedSearch) ||
+        (claim.providerName || "").toLowerCase().includes(normalizedSearch) ||
+        (claim.invoiceNumber || "").toLowerCase().includes(normalizedSearch) ||
+        (claim.serviceType || "").toLowerCase().includes(normalizedSearch);
+      const matchesStatus = statusFilter === "all" || lifecycleStatus === statusFilter;
+      const matchesProvider = providerFilter === "All" || (claim.providerName || "Unknown provider") === providerFilter;
+      return matchesSearch && matchesStatus && matchesProvider;
+    });
+  }, [providerFilter, providerSubmissions, searchTerm, statusFilter]);
+  const selectedProviderLifecycleClaim = useMemo(
+    () =>
+      providerLifecycleDialog
+        ? providerClaimsSnapshot.find((claim) => claim.id === providerLifecycleDialog.claimId) || null
+        : null,
+    [providerClaimsSnapshot, providerLifecycleDialog]
+  );
 
-  const visibleClaimsCount = activeTab === "member" ? filteredMemberClaims.length : filteredVendorClaims.length;
   const tabStats = useMemo(
     () => ({
       member: {
         total: memberClaims.length,
-        inReview: memberClaims.filter((claim) => claim.status === "In review").length,
+        submitted: memberClaims.filter(
+          (claim) => (claim.lifecycleStatus || normalizeUnifiedClaimStatus(claim.status)) === "submitted"
+        ).length,
       },
       vendor: {
-        total: vendorClaims.length,
-        inReview: vendorClaims.filter((claim) => claim.status === "In review").length,
+        total: providerClaimsSnapshot.length,
+        open: providerClaimsSnapshot.filter((claim) =>
+          ["submitted", "request_additional_information", "in_process"].includes(normalizeUnifiedClaimStatus(claim.status))
+        ).length,
       },
     }),
-    [memberClaims, vendorClaims]
+    [memberClaims, providerClaimsSnapshot]
   );
 
   const requestingClaim = useMemo(() => {
     if (!requestingClaimTarget) return null;
-    return requestingClaimTarget.scope === "member"
-      ? memberClaims.find((claim) => claim.id === requestingClaimTarget.id) || null
-      : vendorClaims.find((claim) => claim.id === requestingClaimTarget.id) || null;
-  }, [memberClaims, requestingClaimTarget, vendorClaims]);
+    return memberClaims.find((claim) => claim.id === requestingClaimTarget.id) || null;
+  }, [memberClaims, requestingClaimTarget]);
   const rejectingClaim = useMemo(() => {
     if (!rejectingClaimTarget) return null;
-    return rejectingClaimTarget.scope === "member"
-      ? memberClaims.find((claim) => claim.id === rejectingClaimTarget.id) || null
-      : vendorClaims.find((claim) => claim.id === rejectingClaimTarget.id) || null;
-  }, [memberClaims, rejectingClaimTarget, vendorClaims]);
-  const approvingClaim = useMemo(() => {
-    if (!approvingClaimTarget) return null;
-    return approvingClaimTarget.scope === "member"
-      ? memberClaims.find((claim) => claim.id === approvingClaimTarget.id) || null
-      : vendorClaims.find((claim) => claim.id === approvingClaimTarget.id) || null;
-  }, [approvingClaimTarget, memberClaims, vendorClaims]);
-  const selectedPatientClaim = useMemo(
-    () => vendorClaims.find((claim) => claim.id === selectedPatientClaimId) || null,
-    [selectedPatientClaimId, vendorClaims]
-  );
+    return memberClaims.find((claim) => claim.id === rejectingClaimTarget.id) || null;
+  }, [memberClaims, rejectingClaimTarget]);
   const selectedMemberClaim = useMemo(
     () => memberClaims.find((claim) => claim.id === selectedMemberClaimId) || null,
     [memberClaims, selectedMemberClaimId]
   );
-  const selectedPatientRecord = useMemo(() => {
-    if (!selectedPatientClaim) return null;
-    return memberDirectory.find((member) => member.fullName === selectedPatientClaim.patient) || null;
-  }, [memberDirectory, selectedPatientClaim]);
   const selectedMemberRecord = useMemo(() => {
     if (!selectedMemberClaim) return null;
     return memberDirectory.find((member) => member.fullName === selectedMemberClaim.patient) || null;
@@ -248,7 +269,7 @@ export default function ClaimsListPage() {
   const selectedMemberDependents = useMemo(() => {
     if (!selectedMemberRecord) {
       if (!selectedMemberClaim) return [];
-      return MOCK_MEMBER_DEPENDENTS[selectedMemberClaim.patient] || [];
+      return [];
     }
 
     const primaryStaffId = getPrimaryStaffId(selectedMemberRecord.staffId);
@@ -260,201 +281,313 @@ export default function ClaimsListPage() {
 
     if (linkedDependents.length > 0) return linkedDependents;
     if (!selectedMemberClaim) return [];
-    return MOCK_MEMBER_DEPENDENTS[selectedMemberClaim.patient] || [];
+    return [];
   }, [memberDirectory, selectedMemberClaim, selectedMemberRecord]);
-  const selectedPatientCompany = useMemo(() => {
-    if (!selectedPatientRecord) return null;
-    return companies.find((company) => company.companyId === selectedPatientRecord.companyId) || null;
-  }, [companies, selectedPatientRecord]);
-  const selectedPatientPlan = useMemo(() => {
-    if (!selectedPatientRecord) return null;
-    return resolveMemberPlan(selectedPatientRecord, selectedPatientCompany);
-  }, [selectedPatientCompany, selectedPatientRecord]);
-  const selectedPatientDependents = useMemo(() => {
-    if (!selectedPatientRecord) {
-      if (!selectedPatientClaim) return [];
-      return MOCK_MEMBER_DEPENDENTS[selectedPatientClaim.patient] || [];
-    }
-
-    const primaryStaffId = getPrimaryStaffId(selectedPatientRecord.staffId);
-    const linkedDependents = memberDirectory.filter(
-      (entry) =>
-        entry.companyId === selectedPatientRecord.companyId &&
-        entry.staffId.startsWith(`${primaryStaffId}-DEP-`)
-    );
-
-    if (linkedDependents.length > 0) return linkedDependents;
-    if (!selectedPatientClaim) return [];
-    return MOCK_MEMBER_DEPENDENTS[selectedPatientClaim.patient] || [];
-  }, [memberDirectory, selectedPatientClaim, selectedPatientRecord]);
-  const canActionClaim = (status: string) => !["Approved", "Rejected"].includes(status);
   const resetFilters = () => {
     setSearchTerm("");
-    setStatusFilter("All");
+    setStatusFilter("all");
     setProviderFilter("All");
   };
-  const openRequestModal = (scope: ClaimScope, claimId: string) => {
-    setRequestingClaimTarget({ id: claimId, scope });
+  const closeProviderLifecycleDialog = () => {
+    setProviderLifecycleDialog(null);
+    setProviderLifecycleNote("");
+    setProviderSubmissionError("");
+  };
+  const openProviderLifecycleDialog = useCallback((claim: ProviderClaimRecord, action: ProviderLifecycleDialogAction) => {
+    if (!canOperateClaimsPage) return;
+    setProviderLifecycleDialog({ claimId: claim.id, action });
+    setProviderLifecycleNote(claim.reviewNote || "");
+    setProviderSubmissionError("");
+  }, [canOperateClaimsPage]);
+  const markProviderClaimInProcess = useCallback((providerClaimId: string) => {
+    void (async () => {
+      try {
+        if (!canOperateClaimsPage) return;
+        if (!adminSession?.profileId) {
+          setProviderSubmissionError("Unable to identify the current admin reviewer.");
+          return;
+        }
+
+        setProviderSubmissionError("");
+        setProviderLifecycleSubmittingId(providerClaimId);
+        await updateProviderClaimLifecycle(providerClaimId, {
+          status: CLAIM_STATUS.IN_PROCESS,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by_profile_id: adminSession.profileId,
+          review_note: null,
+          approval_attachment_path: null,
+          approval_attachment_name: null,
+          approved_at: null,
+        });
+      } catch (error) {
+        setProviderSubmissionError(
+          error instanceof Error ? error.message : "Unable to mark this provider claim in process."
+        );
+      } finally {
+        setProviderLifecycleSubmittingId("");
+      }
+    })();
+  }, [adminSession?.profileId, canOperateClaimsPage]);
+  const submitProviderLifecycleDialog = () => {
+    void (async () => {
+      try {
+        if (!canOperateClaimsPage) return;
+        if (!providerLifecycleDialog) return;
+        if (!adminSession?.profileId) {
+          setProviderSubmissionError("Unable to identify the current admin reviewer.");
+          return;
+        }
+
+        const nowIso = new Date().toISOString();
+        const note = providerLifecycleNote.trim();
+        if (providerLifecycleDialog.action === "rejected" && !note) {
+          setProviderSubmissionError("Please provide a rejection reason.");
+          return;
+        }
+        if (providerLifecycleDialog.action === "request_additional_information" && !note) {
+          setProviderSubmissionError("Please explain what additional information is needed.");
+          return;
+        }
+        setProviderSubmissionError("");
+        setProviderLifecycleSubmittingId(providerLifecycleDialog.claimId);
+        if (providerLifecycleDialog.action === "rejected") {
+          await updateProviderClaimLifecycle(providerLifecycleDialog.claimId, {
+            status: "rejected",
+            reviewed_at: nowIso,
+            reviewed_by_profile_id: adminSession.profileId,
+            review_note: note,
+          });
+        } else if (providerLifecycleDialog.action === "request_additional_information") {
+          await updateProviderClaimLifecycle(providerLifecycleDialog.claimId, {
+            status: "request_additional_information",
+            reviewed_at: nowIso,
+            reviewed_by_profile_id: adminSession.profileId,
+            review_note: note,
+          });
+        }
+        closeProviderLifecycleDialog();
+      } catch (error) {
+        setProviderSubmissionError(
+          error instanceof Error ? error.message : "Unable to update this provider claim."
+        );
+      } finally {
+        setProviderLifecycleSubmittingId("");
+      }
+    })();
+  };
+  const openRequestModal = useCallback((claimId: string) => {
+    if (!canOperateClaimsPage) return;
+    setRequestingClaimTarget({ id: claimId });
     setRequestNote("");
-  };
-  const openRejectModal = (scope: ClaimScope, claimId: string, reason?: string) => {
-    setRejectingClaimTarget({ id: claimId, scope });
+  }, [canOperateClaimsPage]);
+  const openRejectModal = useCallback((claimId: string, reason?: string) => {
+    if (!canOperateClaimsPage) return;
+    setRejectingClaimTarget({ id: claimId });
     setRejectionReason(reason || "");
-  };
-  const openApprovalModal = (scope: ClaimScope, claimId: string) => {
-    setApprovingClaimTarget({ id: claimId, scope });
-    setBankSlipFile(null);
-    setApprovalError("");
-  };
-  const closeApprovalModal = () => {
-    setApprovingClaimTarget(null);
-    setBankSlipFile(null);
-    setApprovalError("");
-  };
-  const handleBankSlipSelection = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      setBankSlipFile(null);
-      return;
-    }
+  }, [canOperateClaimsPage]);
 
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      setBankSlipFile({ name: file.name, dataUrl });
-      setApprovalError("");
-    } catch (error) {
-      setBankSlipFile(null);
-      setApprovalError(error instanceof Error ? error.message : "Unable to upload the bank-in slip.");
-    } finally {
-      event.target.value = "";
-    }
-  };
-
-  const saveClaimStatus = (
-    target: ClaimTarget,
-    nextStatus: string,
-    options?: {
-      rejectionReason?: string;
-      bankSlipFileName?: string;
-      bankSlipDataUrl?: string;
-      bankSlipUploadedAt?: string;
-    }
-  ) => {
-    const previousClaim =
-      target.scope === "member"
-        ? memberClaims.find((claim) => claim.id === target.id) || null
-        : vendorClaims.find((claim) => claim.id === target.id) || null;
-    const previousStatus = previousClaim?.status || "";
-
-    if (target.scope === "member") {
-      saveMemberClaimStatus(target.id, nextStatus, options);
-    } else {
-      saveAdminClaimStatus(target.id, nextStatus, options);
-    }
-
-    if (!previousClaim || previousStatus === nextStatus) return;
-
-    const to =
-      target.scope === "member"
-        ? memberDirectory.find((entry) => entry.staffId === previousClaim.patientId)?.email ||
-          memberDirectory.find((entry) => entry.fullName === previousClaim.patient)?.email ||
-          ""
-        : providerDirectory.find((entry) => entry.providerName === (previousClaim as AdminClaimRecord).hospital)
-            ?.contactEmail || "";
-
-    if (!to) return;
-
-    const subject = `Claim ${previousClaim.id} status updated: ${previousStatus} → ${nextStatus}`;
-    const reasonLine =
-      nextStatus === "Rejected" && options?.rejectionReason?.trim()
-        ? `\n\nRejection reason:\n${options.rejectionReason.trim()}`
+  const saveClaimStatus = useCallback(
+    async (
+      target: ClaimTarget,
+      nextStatus: string,
+      options?: {
+        rejectionReason?: string;
+        note?: string;
+        bankSlipFileName?: string;
+        bankSlipDataUrl?: string;
+        bankSlipUploadedAt?: string;
+      }
+    ) => {
+      if (!canOperateClaimsPage) return;
+      const previousClaim = memberClaims.find((claim) => claim.id === target.id) || null;
+      const previousStatus = previousClaim
+        ? formatUnifiedClaimStatus(previousClaim.lifecycleStatus || previousClaim.status)
         : "";
-    const text = [
-      `Claim ID: ${previousClaim.id}`,
-      `Claim type: ${target.scope === "member" ? "Member reimbursement" : "Provider cashless"}`,
-      `Patient: ${previousClaim.patient}`,
-      target.scope === "member"
-        ? `Provider: ${(previousClaim as MemberClaimRecord).providerName}`
-        : `Provider: ${(previousClaim as AdminClaimRecord).hospital}`,
-      `Status: ${previousStatus} → ${nextStatus}`,
-    ].join("\n") + reasonLine;
 
-    void notifyClaimStatusEmail({ to, subject, text });
-  };
+      await saveMemberClaimStatus(target.id, nextStatus, options);
 
-  const deleteClaim = (target: ClaimTarget) => {
+      const nextStatusLabel = formatUnifiedClaimStatus(nextStatus);
+      if (!previousClaim || previousStatus === nextStatusLabel) return;
+
+      const to =
+        memberDirectory.find((entry) => entry.staffId === previousClaim.patientId)?.email ||
+        memberDirectory.find((entry) => entry.fullName === previousClaim.patient)?.email ||
+        "";
+
+      if (!to) return;
+
+      const subject = `Claim ${previousClaim.id} status updated: ${previousStatus} → ${nextStatusLabel}`;
+      const reasonLine =
+        normalizeUnifiedClaimStatus(nextStatus) === "rejected" && options?.rejectionReason?.trim()
+          ? `\n\nRejection reason:\n${options.rejectionReason.trim()}`
+          : "";
+      const text = [
+        `Claim ID: ${previousClaim.id}`,
+        "Claim type: Member reimbursement",
+        `Patient: ${previousClaim.patient}`,
+        `Provider: ${previousClaim.providerName}`,
+        `Status: ${previousStatus} → ${nextStatusLabel}`,
+      ].join("\n") + reasonLine;
+
+      void notifyClaimStatusEmail({ to, subject, text });
+    },
+    [canOperateClaimsPage, memberClaims, memberDirectory]
+  );
+
+  const deleteClaim = useCallback(async (target: ClaimTarget) => {
+    if (!canDeleteClaims) return;
     if (
       typeof window !== "undefined" &&
       !window.confirm(`Delete claim ${target.id}? This action cannot be undone in mock view.`)
     ) {
       return;
     }
-    if (target.scope === "member") {
-      removeMemberClaim(target.id);
-      return;
-    }
-    removeAdminClaim(target.id);
-  };
+    await removeMemberClaim(target.id);
+  }, [canDeleteClaims]);
 
-  const renderClaimActions = (scope: ClaimScope, claim: AnyClaimRecord) => (
-    <>
-      {scope === "vendor" ? (
-        <Link href={`/admin/claims/${claim.id}`}>
+  const markMemberClaimInProcess = useCallback((claimId: string) => {
+    void (async () => {
+      try {
+        if (!canOperateClaimsPage) return;
+        setMemberLifecycleError("");
+        setMemberLifecycleSubmittingId(claimId);
+        await saveClaimStatus({ id: claimId }, CLAIM_STATUS.IN_PROCESS);
+      } catch (error) {
+        setMemberLifecycleError(error instanceof Error ? error.message : "Unable to mark this member claim in process.");
+      } finally {
+        setMemberLifecycleSubmittingId("");
+      }
+    })();
+  }, [canOperateClaimsPage, saveClaimStatus]);
+
+  const renderMemberLifecycleActions = useCallback(
+    (claim: MemberClaimRecord) => {
+      const status = claim.lifecycleStatus || normalizeUnifiedClaimStatus(claim.status);
+      return (
+        <>
           <GlassButton
             variant="ghost"
             className="h-9 w-9 p-0 inline-flex items-center justify-center text-sky-600 hover:text-sky-700"
             title="Review Claim"
+            aria-label="Review Claim"
+            onClick={() => setSelectedMemberClaimId(claim.id)}
           >
-            <ArrowRight className="w-4 h-4" />
+            <Eye className="w-4 h-4" />
           </GlassButton>
-        </Link>
-      ) : (
-        <GlassButton
-          variant="ghost"
-          className="h-9 w-9 p-0 inline-flex items-center justify-center text-sky-600 hover:text-sky-700"
-          title="Review Claim"
-          onClick={() => setSelectedMemberClaimId(claim.id)}
-        >
-          <ArrowRight className="w-4 h-4" />
-        </GlassButton>
-      )}
-      <GlassButton
-        variant="ghost"
-        className="h-9 w-9 p-0 inline-flex items-center justify-center text-rose-600 hover:text-rose-700 disabled:text-slate-300 disabled:hover:text-slate-300"
-        title="Reject Claim"
-        disabled={!canActionClaim(claim.status)}
-        onClick={() => openRejectModal(scope, claim.id, claim.rejectionReason)}
-      >
-        <XCircle className="w-4 h-4" />
-      </GlassButton>
-      <GlassButton
-        variant="ghost"
-        className="h-9 w-9 p-0 inline-flex items-center justify-center text-amber-600 hover:text-amber-700"
-        title="Request Additional Information"
-        onClick={() => openRequestModal(scope, claim.id)}
-      >
-        <AlertTriangle className="w-4 h-4" />
-      </GlassButton>
-      <GlassButton
-        variant="ghost"
-        className="h-9 w-9 p-0 inline-flex items-center justify-center text-emerald-600 hover:text-emerald-700 disabled:text-slate-300 disabled:hover:text-slate-300"
-        title="Approve Claim"
-        disabled={!canActionClaim(claim.status)}
-        onClick={() => openApprovalModal(scope, claim.id)}
-      >
-        <CheckCircle2 className="w-4 h-4" />
-      </GlassButton>
-      {isSuperAdmin && (
-        <GlassButton
-          variant="ghost"
-          className="h-9 w-9 p-0 inline-flex items-center justify-center text-slate-500 hover:text-rose-700"
-          title="Delete Claim"
-          onClick={() => deleteClaim({ id: claim.id, scope })}
-        >
-          <Trash2 className="w-4 h-4" />
-        </GlassButton>
-      )}
-    </>
+          {canOperateClaimsPage && (
+            <>
+              <GlassButton
+                variant="ghost"
+                className="h-9 w-9 p-0 inline-flex items-center justify-center text-sky-700 hover:text-sky-800 disabled:text-slate-300 disabled:hover:text-slate-300"
+                title="Mark In Process"
+                aria-label="Mark In Process"
+                disabled={memberLifecycleSubmittingId === claim.id || !canMarkInProcess(status)}
+                onClick={() => markMemberClaimInProcess(claim.id)}
+              >
+                <Clock3 className="w-4 h-4" />
+              </GlassButton>
+              <GlassButton
+                variant="ghost"
+                className="h-9 w-9 p-0 inline-flex items-center justify-center text-amber-600 hover:text-amber-700 disabled:text-slate-300 disabled:hover:text-slate-300"
+                title="Request Additional Information"
+                aria-label="Request Additional Information"
+                disabled={memberLifecycleSubmittingId === claim.id || !canRequestAdditionalInformation(status)}
+                onClick={() => openRequestModal(claim.id)}
+              >
+                <AlertTriangle className="w-4 h-4" />
+              </GlassButton>
+              <GlassButton
+                variant="ghost"
+                className="h-9 w-9 p-0 inline-flex items-center justify-center text-rose-600 hover:text-rose-700 disabled:text-slate-300 disabled:hover:text-slate-300"
+                title="Reject Claim"
+                aria-label="Reject Claim"
+                disabled={memberLifecycleSubmittingId === claim.id || !canReject(status)}
+                onClick={() => openRejectModal(claim.id, claim.rejectionReason)}
+              >
+                <XCircle className="w-4 h-4" />
+              </GlassButton>
+            </>
+          )}
+          {canDeleteClaims && (
+            <GlassButton
+              variant="ghost"
+              className="h-9 w-9 p-0 inline-flex items-center justify-center text-slate-500 hover:text-rose-700"
+              title="Delete Claim"
+              aria-label="Delete Claim"
+              onClick={() => {
+                void deleteClaim({ id: claim.id });
+              }}
+            >
+              <Trash2 className="w-4 h-4" />
+            </GlassButton>
+          )}
+        </>
+      );
+    },
+    [
+      canDeleteClaims,
+      canOperateClaimsPage,
+      deleteClaim,
+      markMemberClaimInProcess,
+      memberLifecycleSubmittingId,
+      openRejectModal,
+      openRequestModal,
+    ]
+  );
+
+  const renderProviderLifecycleActions = useCallback(
+    (claim: ProviderClaimRecord) => {
+      const status = normalizeUnifiedClaimStatus(claim.status);
+      return (
+        <>
+          <Link href={`/admin/claims/${claim.id}`}>
+            <GlassButton
+              variant="ghost"
+              className="h-9 w-9 border-transparent bg-transparent px-0 text-sky-700 shadow-none hover:bg-transparent hover:text-sky-800"
+              title="Review Claim"
+              aria-label="Review Claim"
+            >
+              <Eye className="h-4 w-4" />
+            </GlassButton>
+          </Link>
+          {canOperateClaimsPage && (
+            <>
+              <GlassButton
+                variant="ghost"
+                className="h-9 w-9 border-transparent bg-transparent px-0 text-sky-700 shadow-none hover:bg-transparent hover:text-sky-800"
+                title="Mark In Process"
+                aria-label="Mark In Process"
+                disabled={providerLifecycleSubmittingId === claim.id || !canMarkInProcess(status)}
+                onClick={() => markProviderClaimInProcess(claim.id)}
+              >
+                <Clock3 className="h-4 w-4" />
+              </GlassButton>
+              <GlassButton
+                variant="ghost"
+                className="h-9 w-9 border-transparent bg-transparent px-0 text-amber-600 shadow-none hover:bg-transparent hover:text-amber-700"
+                title="Request Additional Information"
+                aria-label="Request Additional Information"
+                disabled={providerLifecycleSubmittingId === claim.id || !canRequestAdditionalInformation(status)}
+                onClick={() => openProviderLifecycleDialog(claim, "request_additional_information")}
+              >
+                <AlertTriangle className="h-4 w-4" />
+              </GlassButton>
+              <GlassButton
+                variant="ghost"
+                className="h-9 w-9 border-transparent bg-transparent px-0 text-rose-700 shadow-none hover:bg-transparent hover:text-rose-800"
+                title="Reject Claim"
+                aria-label="Reject Claim"
+                disabled={providerLifecycleSubmittingId === claim.id || !canReject(status)}
+                onClick={() => openProviderLifecycleDialog(claim, "rejected")}
+              >
+                <XCircle className="h-4 w-4" />
+              </GlassButton>
+            </>
+          )}
+        </>
+      );
+    },
+    [canOperateClaimsPage, markProviderClaimInProcess, openProviderLifecycleDialog, providerLifecycleSubmittingId]
   );
 
   const renderFilterFields = () => (
@@ -464,19 +597,18 @@ export default function ClaimsListPage() {
         <select
           className="w-full glass-input px-4 py-2.5 bg-transparent"
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => setStatusFilter(e.target.value as LifecycleFilterValue)}
         >
-          <option value="All">All</option>
-          <option value="In review">In review</option>
-          <option value="In progress">In progress</option>
-          <option value="Approved">Approved</option>
-          <option value="Rejected">Rejected</option>
+          <option value="all">All</option>
+          {UNIFIED_CLAIM_STATUSES.map((status) => (
+            <option key={status} value={status}>
+              {formatUnifiedClaimStatus(status)}
+            </option>
+          ))}
         </select>
       </div>
       <div className="space-y-1.5">
-        <label className="text-sm font-medium text-slate-700">
-          {activeTab === "member" ? "Clinic / Provider" : "Provider Name"}
-        </label>
+        <label className="text-sm font-medium text-slate-700">Clinic / Provider</label>
         <select
           className="w-full glass-input px-4 py-2.5 bg-transparent"
           value={providerFilter}
@@ -492,126 +624,281 @@ export default function ClaimsListPage() {
     </>
   );
 
-  const approveClaim = () => {
-    if (!approvingClaim || !approvingClaimTarget) return;
-    if (!bankSlipFile) {
-      setApprovalError("Upload the bank-in slip before approving this claim.");
-      return;
-    }
+  const providerOptions = useMemo(() => {
+    const source = activeTab === "member" ? memberClaims : providerSubmissions;
+    const values = source
+      .map((claim) => ("providerName" in claim ? claim.providerName : undefined) || "Unknown provider")
+      .filter(Boolean);
+    return ["All", ...Array.from(new Set(values)).sort()];
+  }, [activeTab, memberClaims, providerSubmissions]);
 
-    try {
-      saveClaimStatus(approvingClaimTarget, "Approved", {
-        bankSlipFileName: bankSlipFile.name,
-        bankSlipDataUrl: bankSlipFile.dataUrl,
-        bankSlipUploadedAt: new Date().toISOString(),
-      });
-      closeApprovalModal();
-    } catch (error) {
-      setApprovalError(error instanceof Error ? error.message : "Unable to approve this claim.");
-    }
-  };
+  const memberLifecycleRows = useMemo<LifecycleRow[]>(
+    () =>
+      filteredMemberClaims.map((claim) => ({
+        id: claim.id,
+        claimNumber: claim.id,
+        displayName: claim.patient,
+        providerLabel: claim.providerName,
+        timestamp: getMemberLifecycleTimestamp(claim),
+        amount: getClaimSubmittedAmount(claim),
+        status: claim.lifecycleStatus || normalizeUnifiedClaimStatus(claim.status),
+        onOpen: () => setSelectedMemberClaimId(claim.id),
+        actions: renderMemberLifecycleActions(claim),
+      })),
+    [filteredMemberClaims, renderMemberLifecycleActions]
+  );
+
+  const vendorLifecycleRows = useMemo<LifecycleRow[]>(
+    () =>
+      filteredProviderSubmissions.map((claim) => ({
+        id: claim.id,
+        claimNumber: claim.claimNumber || claim.id.slice(0, 8).toUpperCase(),
+        displayName: claim.patientName || "Unlinked member",
+        providerLabel: claim.providerName || "Unknown provider",
+        timestamp: getProviderLifecycleTimestamp(claim),
+        amount: claim.totalAmount,
+        status: normalizeUnifiedClaimStatus(claim.status),
+        openHref: `/admin/claims/${claim.id}`,
+        actions: renderProviderLifecycleActions(claim),
+      })),
+    [filteredProviderSubmissions, renderProviderLifecycleActions]
+  );
+
+  const activeLifecycleRows = activeTab === "member" ? memberLifecycleRows : vendorLifecycleRows;
+  const activeLifecycleTitle = activeTab === "member" ? "Member Claims" : "Vendor Claims";
+  const activeLifecycleDescription =
+    activeTab === "member"
+      ? "Unified lifecycle view for member reimbursement submissions."
+      : "Unified lifecycle view for provider submissions from `provider_claims`.";
+  const activeSearchPlaceholder =
+    activeTab === "member"
+      ? "Search by claim ID, patient, provider, invoice, or category"
+      : "Search by claim no., patient, provider, invoice, or service type";
+
+  const renderLifecycleTable = (rows: LifecycleRow[], emptyMessage: string) => (
+    <GlassCard className="overflow-hidden p-0 border-white/40">
+      <div className="px-6 py-4 border-b border-white/60 bg-white/40 flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800">{activeLifecycleTitle}</h2>
+          <p className="text-sm text-slate-500">{activeLifecycleDescription}</p>
+        </div>
+        <span className="text-sm font-medium text-slate-500">{rows.length} result(s)</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-white/40 border-b border-slate-100">
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Claim No.</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Patient / Member</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Clinic / Provider</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Latest Activity</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Amount</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => (
+              <tr key={row.id} className="hover:bg-slate-50/60 transition-colors">
+                <td className="px-6 py-4">
+                  {row.openHref ? (
+                    <Link href={row.openHref} className="font-mono text-sm font-semibold text-slate-700 hover:text-sky-700 transition-colors">
+                      {row.claimNumber}
+                    </Link>
+                  ) : row.onOpen ? (
+                    <button
+                      type="button"
+                      className="font-mono text-sm font-semibold text-slate-700 hover:text-sky-700 transition-colors"
+                      onClick={row.onOpen}
+                    >
+                      {row.claimNumber}
+                    </button>
+                  ) : (
+                    <span className="font-mono text-sm font-semibold text-slate-700">{row.claimNumber}</span>
+                  )}
+                </td>
+                <td className="px-6 py-4 text-sm font-medium text-slate-800">{row.displayName}</td>
+                <td className="px-6 py-4 text-sm text-slate-600">{row.providerLabel}</td>
+                <td className="px-6 py-4 text-sm text-slate-500">
+                  {formatDateDisplay(row.timestamp) || row.timestamp}
+                </td>
+                <td className="px-6 py-4 text-sm font-semibold text-slate-800 text-right">
+                  {formatCurrency(row.amount)}
+                </td>
+                <td className="px-6 py-4">
+                  <span
+                    className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide ${getLifecycleBadgeClass(
+                      row.status
+                    )}`}
+                  >
+                    {formatUnifiedClaimStatus(row.status)}
+                  </span>
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <div className="flex justify-end gap-1.5">{row.actions}</div>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-400">
+                  {emptyMessage}
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </GlassCard>
+  );
+
+  const renderLifecycleCards = (rows: LifecycleRow[], emptyMessage: string) => (
+    <div className="space-y-3">
+      {rows.length === 0 ? (
+        <GlassCard className="p-6 text-center text-sm text-slate-400">{emptyMessage}</GlassCard>
+      ) : (
+        rows.map((row) => (
+          <MobileRecordCard
+            key={row.id}
+            title={
+              row.openHref ? (
+                <Link href={row.openHref} className="font-mono text-slate-800 hover:text-sky-700 transition-colors">
+                  {row.claimNumber}
+                </Link>
+              ) : row.onOpen ? (
+                <button type="button" className="font-mono text-slate-800 hover:text-sky-700 transition-colors" onClick={row.onOpen}>
+                  {row.claimNumber}
+                </button>
+              ) : (
+                <span className="font-mono">{row.claimNumber}</span>
+              )
+            }
+            subtitle={row.providerLabel}
+            badge={
+              <span
+                className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${getLifecycleBadgeClass(
+                  row.status
+                )}`}
+              >
+                {formatUnifiedClaimStatus(row.status)}
+              </span>
+            }
+            meta={
+              <>
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/60 px-2 py-1">
+                  <Calendar className="h-3 w-3" />
+                  {formatDateDisplay(row.timestamp) || row.timestamp}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/60 px-2 py-1 font-semibold text-slate-700">
+                  {formatCurrency(row.amount)}
+                </span>
+              </>
+            }
+            footer={<div className="flex flex-wrap justify-end gap-1.5">{row.actions}</div>}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Patient / Member</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800">{row.displayName}</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Clinic / Provider</p>
+                <p className="mt-1 text-sm text-slate-700">{row.providerLabel}</p>
+              </div>
+            </div>
+          </MobileRecordCard>
+        ))
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Claims Management</h1>
-          <p className="text-slate-500">Separate member reimbursement claims from vendor-submitted claims in one workspace.</p>
+          <p className="text-slate-500">Manage member reimbursement claims and the unified provider claim lifecycle in one workspace.</p>
         </div>
       </div>
+      {adminSession && !canOperateClaimsPage ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          You have read-only access on Claims Management. Review is available, but status changes and deletion are disabled.
+        </p>
+      ) : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] gap-4">
-        <GlassCard className="p-4 border-sky-100 bg-gradient-to-br from-sky-50 via-white to-cyan-50">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-sky-600">Member Claims</p>
-              <h2 className="text-xl font-bold text-slate-800">Reimbursement submissions from members</h2>
-              <p className="text-sm text-slate-500">Track receipts, visit dates, categories, and review status from the member portal.</p>
-            </div>
-            <div className="rounded-2xl bg-white/80 p-3 shadow-sm border border-sky-100">
-              <Users className="h-5 w-5 text-sky-600" />
-            </div>
-          </div>
-          <div className="mt-4 flex items-center gap-3 text-sm">
-            <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-700 border border-sky-100">
-              {tabStats.member.total} total
-            </span>
-            <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-700">
-              {tabStats.member.inReview} in review
-            </span>
-          </div>
-        </GlassCard>
-
-        <GlassCard className="p-4 border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-teal-50">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-600">Vendor Claims</p>
-              <h2 className="text-xl font-bold text-slate-800">Provider claims that need admin action</h2>
-              <p className="text-sm text-slate-500">Review, request more information, approve with bank-in slip, or reject submitted claims.</p>
-            </div>
-            <div className="rounded-2xl bg-white/80 p-3 shadow-sm border border-emerald-100">
-              <Building2 className="h-5 w-5 text-emerald-600" />
-            </div>
-          </div>
-          <div className="mt-4 flex items-center gap-3 text-sm">
-            <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-700 border border-emerald-100">
-              {tabStats.vendor.total} total
-            </span>
-            <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-700">
-              {tabStats.vendor.inReview} in review
-            </span>
-          </div>
-        </GlassCard>
-      </div>
-
-      <GlassCard className="p-2 border-white/50">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab("member")}
-            className={`rounded-2xl px-4 py-3 text-left transition-all ${
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <button
+          type="button"
+          className="text-left"
+          onClick={() => setActiveTab("member")}
+        >
+          <GlassCard
+            className={`p-4 transition-all ${
               activeTab === "member"
-                ? "bg-sky-600 text-white shadow-lg shadow-sky-200"
-                : "bg-white/70 text-slate-700 hover:bg-white"
+                ? "border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 ring-2 ring-sky-100"
+                : "border-slate-100 bg-white/80 hover:border-sky-100"
             }`}
           >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.22em] opacity-80">Member Claims</p>
-                <p className="mt-1 text-sm font-medium opacity-90">Portal reimbursement submissions</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-sky-600">Member Claims</p>
+                <h2 className="text-xl font-bold text-slate-800">Reimbursement submissions from members</h2>
+                <p className="text-sm text-slate-500">Use the unified lifecycle list for review, request info, in-process handoff, and approval.</p>
               </div>
-              <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${activeTab === "member" ? "bg-white/15 text-white" : "bg-sky-100 text-sky-700"}`}>
-                {tabStats.member.total}
+              <div className="rounded-2xl bg-white/80 p-3 shadow-sm border border-sky-100">
+                <Users className="h-5 w-5 text-sky-600" />
+              </div>
+            </div>
+            <div className="mt-4 flex items-center gap-3 text-sm">
+              <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-700 border border-sky-100">
+                {tabStats.member.total} total
+              </span>
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">
+                {tabStats.member.submitted} submitted
               </span>
             </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("vendor")}
-            className={`rounded-2xl px-4 py-3 text-left transition-all ${
+          </GlassCard>
+        </button>
+
+        <button
+          type="button"
+          className="text-left"
+          onClick={() => setActiveTab("vendor")}
+        >
+          <GlassCard
+            className={`p-4 transition-all ${
               activeTab === "vendor"
-                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-200"
-                : "bg-white/70 text-slate-700 hover:bg-white"
+                ? "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 ring-2 ring-emerald-100"
+                : "border-slate-100 bg-white/80 hover:border-emerald-100"
             }`}
           >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.22em] opacity-80">Vendor Claims</p>
-                <p className="mt-1 text-sm font-medium opacity-90">Provider claims with admin actions</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-600">Vendor Claims</p>
+                <h2 className="text-xl font-bold text-slate-800">Provider lifecycle from `provider_claims`</h2>
+                <p className="text-sm text-slate-500">Keep vendor claims on the `provider_claims` source of truth while using the same list pattern and action model.</p>
               </div>
-              <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${activeTab === "vendor" ? "bg-white/15 text-white" : "bg-emerald-100 text-emerald-700"}`}>
-                {tabStats.vendor.total}
+              <div className="rounded-2xl bg-white/80 p-3 shadow-sm border border-emerald-100">
+                <Building2 className="h-5 w-5 text-emerald-600" />
+              </div>
+            </div>
+            <div className="mt-4 flex items-center gap-3 text-sm">
+              <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 font-semibold text-slate-700 border border-emerald-100">
+                {tabStats.vendor.total} tracked
+              </span>
+              <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 font-semibold text-amber-700">
+                {tabStats.vendor.open} open
               </span>
             </div>
-          </button>
-        </div>
-      </GlassCard>
+          </GlassCard>
+        </button>
+      </div>
 
       <GlassCard className="hidden lg:block p-5 space-y-4">
         <div className="flex items-center gap-2 text-slate-700">
           <SlidersHorizontal className="w-4 h-4 text-sky-500" />
           <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-            Filter {activeTab === "member" ? "Member" : "Vendor"} Claims
+            Filter {activeTab === "member" ? "Member Claims" : "Vendor Claims"}
           </h2>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_1fr_1fr_auto] gap-4">
@@ -621,11 +908,7 @@ export default function ClaimsListPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
               <input
                 type="text"
-                placeholder={
-                  activeTab === "member"
-                    ? "Search by Claim ID, patient, provider, invoice, or category"
-                    : "Search by Claim ID, patient, or provider name"
-                }
+                placeholder={activeSearchPlaceholder}
                 className="w-full glass-input pl-10 pr-4 py-2.5"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -634,11 +917,7 @@ export default function ClaimsListPage() {
           </div>
           {renderFilterFields()}
           <div className="flex items-end">
-            <GlassButton
-              variant="secondary"
-              className="w-full lg:w-auto gap-2"
-              onClick={resetFilters}
-            >
+            <GlassButton variant="secondary" className="w-full lg:w-auto gap-2" onClick={resetFilters}>
               <RotateCcw className="w-4 h-4" />
               Reset
             </GlassButton>
@@ -651,7 +930,7 @@ export default function ClaimsListPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
           <input
             type="text"
-            placeholder={activeTab === "member" ? "Search member claims" : "Search vendor claims"}
+            placeholder={activeSearchPlaceholder}
             className="w-full glass-input pl-10 pr-4 py-2.5"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -664,243 +943,93 @@ export default function ClaimsListPage() {
             Reset Filters
           </GlassButton>
         </div>
-        <p className="text-xs text-slate-500">{visibleClaimsCount} result(s)</p>
+        <p className="text-xs text-slate-500">{activeLifecycleRows.length} result(s)</p>
       </GlassCard>
 
+      {activeTab === "member" && memberLifecycleError ? (
+        <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {memberLifecycleError}
+        </p>
+      ) : null}
+      {activeTab === "vendor" && providerSubmissionError ? (
+        <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {providerSubmissionError}
+        </p>
+      ) : null}
+
       <ResponsiveDataView
-        desktop={
-          activeTab === "member" ? (
-            <GlassCard className="overflow-hidden p-0 border-white/40">
-              <div className="px-6 py-4 border-b border-white/60 bg-white/40 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-800">Member Claim List</h2>
-                  <p className="text-sm text-slate-500">Review reimbursement submissions coming from the member portal.</p>
-                </div>
-                <span className="text-sm font-medium text-slate-500">{filteredMemberClaims.length} result(s)</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-white/40 border-b border-slate-100">
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Claim ID</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Patient</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Date Submitted</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Amount Submitted</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredMemberClaims.map((claim) => (
-                      <tr key={claim.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="px-6 py-4">
-                          <button
-                            type="button"
-                            className="font-mono text-sm font-semibold text-slate-700 hover:text-sky-700 transition-colors"
-                            onClick={() => setSelectedMemberClaimId(claim.id)}
-                          >
-                            {claim.id}
-                          </button>
-                        </td>
-                        <td className="px-6 py-4 text-sm font-medium text-slate-800">{claim.patient}</td>
-                        <td className="px-6 py-4 text-sm text-slate-500">
-                          {formatDateDisplay(getClaimSubmittedAt(claim)) || getClaimSubmittedAt(claim)}
-                        </td>
-                        <td className="px-6 py-4 text-sm font-semibold text-slate-800 text-right">
-                          {formatCurrency(getClaimSubmittedAmount(claim))}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide ${getStatusBadgeClass(claim.status)}`}>
-                            {claim.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-1.5">{renderClaimActions("member", claim)}</div>
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredMemberClaims.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
-                          No member claims found matching the selected filters.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </GlassCard>
-          ) : (
-            <GlassCard className="overflow-hidden p-0 border-white/40">
-              <div className="px-6 py-4 border-b border-white/60 bg-white/40 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-800">Vendor Claim List</h2>
-                  <p className="text-sm text-slate-500">Review incoming provider claims in a standard management table.</p>
-                </div>
-                <span className="text-sm font-medium text-slate-500">{filteredVendorClaims.length} result(s)</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-white/40 border-b border-slate-100">
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Claim ID</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Patient</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Date Submitted</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Amount Submitted</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredVendorClaims.map((claim) => (
-                      <tr key={claim.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="px-6 py-4">
-                          <span className="font-mono text-sm font-semibold text-slate-700">{claim.id}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <button
-                            type="button"
-                            className="font-medium text-slate-800 hover:text-sky-700 transition-colors"
-                            onClick={() => setSelectedPatientClaimId(claim.id)}
-                          >
-                            {claim.patient}
-                          </button>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-500">
-                          {formatDateDisplay(getClaimSubmittedAt(claim)) || getClaimSubmittedAt(claim)}
-                        </td>
-                        <td className="px-6 py-4 text-sm font-semibold text-slate-800 text-right">
-                          {formatCurrency(getClaimSubmittedAmount(claim))}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide ${getStatusBadgeClass(claim.status)}`}>
-                            {claim.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-1.5">{renderClaimActions("vendor", claim)}</div>
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredVendorClaims.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
-                          No vendor claims found matching the selected filters.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </GlassCard>
-          )
-        }
-        mobile={
-          activeTab === "member" ? (
-            <div className="space-y-3">
-              {filteredMemberClaims.map((claim) => (
-                <MobileRecordCard
-                  key={claim.id}
-                  title={<span className="font-mono">{claim.id}</span>}
-                  subtitle={claim.providerName}
-                  badge={
-                    <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${getStatusBadgeClass(claim.status)}`}>
-                      {claim.status}
-                    </span>
-                  }
-                  meta={
-                    <>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-white/60 px-2 py-1">
-                        <Calendar className="h-3 w-3" />
-                        {formatDateDisplay(claim.visitDate) || claim.visitDate}
-                      </span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-white/60 px-2 py-1 font-semibold text-slate-700">
-                        {formatCurrency(Number(claim.amountSubmitted) || 0)}
-                      </span>
-                    </>
-                  }
-                  footer={<div className="flex flex-wrap justify-end gap-1.5">{renderClaimActions("member", claim)}</div>}
-                >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Patient</p>
-                      <p className="mt-1 text-sm font-semibold text-slate-800">{claim.patient}</p>
-                    </div>
-                    <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Category</p>
-                      <p className="mt-1 text-sm text-slate-700">{claim.category}</p>
-                    </div>
-                    <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Invoice / Receipt</p>
-                      <p className="mt-1 text-sm text-slate-700">{claim.invoiceReceiptNo}</p>
-                    </div>
-                    <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Attachments</p>
-                      <p className="mt-1 text-sm text-slate-700">
-                        {claim.receiptFiles.length + Number(Boolean(claim.referralFileName)) + Number(Boolean(claim.mcFileName)) + Number(Boolean(claim.rlFileName))} file(s)
-                      </p>
-                    </div>
-                  </div>
-                </MobileRecordCard>
-              ))}
-              {filteredMemberClaims.length === 0 && (
-                <GlassCard className="p-6 text-center text-sm text-slate-400">
-                  No member claims found matching the selected filters.
-                </GlassCard>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredVendorClaims.map((claim) => (
-                <MobileRecordCard
-                  key={claim.id}
-                  title={<span className="font-mono">{claim.id}</span>}
-                  subtitle={claim.hospital}
-                  badge={
-                    <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${getStatusBadgeClass(claim.status)}`}>
-                      {claim.status}
-                    </span>
-                  }
-                  meta={
-                    <>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-white/60 px-2 py-1">
-                        <Calendar className="h-3 w-3" />
-                        {formatDateDisplay(claim.date) || claim.date}
-                      </span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-white/60 px-2 py-1 font-semibold text-slate-700">
-                        {formatCurrency(claim.amount)}
-                      </span>
-                    </>
-                  }
-                  footer={<div className="flex flex-wrap justify-end gap-1.5">{renderClaimActions("vendor", claim)}</div>}
-                >
-                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Patient</p>
-                    <button
-                      type="button"
-                      className="mt-1 text-sm font-semibold text-slate-800 hover:text-sky-700 transition-colors"
-                      onClick={() => setSelectedPatientClaimId(claim.id)}
-                    >
-                      {claim.patient}
-                    </button>
-                  </div>
-                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Provider Name</p>
-                    <p className="mt-1 text-sm text-slate-700">{claim.hospital}</p>
-                  </div>
-                </MobileRecordCard>
-              ))}
-              {filteredVendorClaims.length === 0 && (
-                <GlassCard className="p-6 text-center text-sm text-slate-400">
-                  No vendor claims found matching the selected filters.
-                </GlassCard>
-              )}
-            </div>
-          )
-        }
+        desktop={renderLifecycleTable(
+          activeLifecycleRows,
+          activeTab === "member"
+            ? "No member claims found matching the selected filters."
+            : "No vendor claims found matching the selected filters."
+        )}
+        mobile={renderLifecycleCards(
+          activeLifecycleRows,
+          activeTab === "member"
+            ? "No member claims found matching the selected filters."
+            : "No vendor claims found matching the selected filters."
+        )}
       />
+      {providerLifecycleDialog && selectedProviderLifecycleClaim && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm">
+          <div className="absolute inset-0" onClick={closeProviderLifecycleDialog} />
+          <GlassCard className="w-full max-w-xl p-0 overflow-hidden border border-slate-200 bg-white/95 relative">
+            <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50/70">
+              <h3 className="text-lg font-bold text-slate-800">
+                {providerLifecycleDialog.action === "rejected"
+                  ? "Reject Provider Claim"
+                  : "Request Additional Information"}
+              </h3>
+              <p className="text-sm text-slate-500">
+                Claim:{" "}
+                <span className="font-medium text-slate-700">
+                  {selectedProviderLifecycleClaim.claimNumber || selectedProviderLifecycleClaim.id}
+                </span>{" "}
+                for {selectedProviderLifecycleClaim.patientName || "Unknown patient"}
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">
+                  {providerLifecycleDialog.action === "rejected"
+                    ? "Rejection Reason"
+                    : "Information Needed"}{" "}
+                  <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  className="w-full glass-input p-3 text-sm h-32 resize-none"
+                  placeholder={
+                    providerLifecycleDialog.action === "rejected"
+                      ? "State the rejection reason clearly for the provider."
+                      : "Explain what additional information is needed."
+                  }
+                  value={providerLifecycleNote}
+                  onChange={(event) => setProviderLifecycleNote(event.target.value)}
+                />
+              </div>
+              {providerSubmissionError ? (
+                <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {providerSubmissionError}
+                </p>
+              ) : null}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200/70 bg-slate-50 flex justify-end gap-3">
+              <GlassButton variant="secondary" onClick={closeProviderLifecycleDialog}>
+                Cancel
+              </GlassButton>
+              <GlassButton
+                disabled={providerLifecycleSubmittingId === selectedProviderLifecycleClaim.id}
+                onClick={submitProviderLifecycleDialog}
+              >
+                {providerLifecycleDialog.action === "rejected" ? "Confirm Reject" : "Send Request"}
+              </GlassButton>
+            </div>
+          </GlassCard>
+        </div>
+      )}
       {requestingClaim && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm">
           <div className="absolute inset-0" onClick={() => setRequestingClaimTarget(null)} />
           <GlassCard className="w-full max-w-xl p-0 overflow-hidden border border-slate-200 bg-white/95 relative">
             <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50/70">
@@ -920,20 +1049,20 @@ export default function ClaimsListPage() {
                   value={requestNote}
                   onChange={(e) => setRequestNote(e.target.value)}
                 />
-                <p className="text-xs text-slate-400">
-                  Keep the message short and actionable for the {requestingClaimTarget?.scope === "member" ? "member" : "provider"}.
-                </p>
+                <p className="text-xs text-slate-400">Keep the message short and actionable for the member.</p>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-200/70 bg-slate-50 flex justify-end gap-3">
               <GlassButton variant="secondary" onClick={() => setRequestingClaimTarget(null)}>Cancel</GlassButton>
               <GlassButton
                 disabled={!requestNote.trim()}
-                onClick={() => {
+                onClick={async () => {
                   const token = `${requestingClaim.id}-${Date.now()}`;
                   addAdminClaimRequest({ token, id: requestingClaim.id, note: requestNote.trim(), createdAt: new Date().toISOString() });
                   if (!requestingClaimTarget) return;
-                  saveClaimStatus(requestingClaimTarget, "In progress");
+                  await saveClaimStatus(requestingClaimTarget, CLAIM_STATUS.REQUEST_ADDITIONAL_INFORMATION, {
+                    note: requestNote.trim(),
+                  });
                   setLastRequestToken(token);
                   setRequestNote("");
                   setRequestingClaimTarget(null);
@@ -945,52 +1074,8 @@ export default function ClaimsListPage() {
           </GlassCard>
         </div>
       )}
-      {approvingClaim && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="absolute inset-0" onClick={closeApprovalModal} />
-          <GlassCard className="w-full max-w-xl p-0 overflow-hidden border border-slate-200 bg-white/95 relative">
-            <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50/70">
-              <h3 className="text-lg font-bold text-slate-800">Approve Claim</h3>
-              <p className="text-sm text-slate-500">
-                Claim: <span className="font-medium text-slate-700">{approvingClaim.id}</span> for {approvingClaim.patient}
-              </p>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-                <p className="text-sm font-medium text-emerald-900">Bank-in slip is required before approval.</p>
-                <p className="mt-1 text-xs text-emerald-700">The uploaded slip will be visible in the member portal for download.</p>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">
-                  Bank-In Slip <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="file"
-                  accept=".pdf,image/*"
-                  className="w-full glass-input px-2.5 py-1.5 bg-white text-[11px] text-slate-600 file:mr-2.5 file:rounded-md file:border file:border-slate-200 file:bg-slate-100 file:px-3 file:py-1 file:text-[10px] file:font-semibold file:uppercase file:tracking-wide file:text-slate-600 hover:file:bg-slate-200/80"
-                  onChange={handleBankSlipSelection}
-                />
-                {bankSlipFile?.name && (
-                  <p className="text-[11px] text-slate-500">{bankSlipFile.name}</p>
-                )}
-              </div>
-              {approvalError && (
-                <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                  {approvalError}
-                </p>
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200/70 bg-slate-50 flex justify-end gap-3">
-              <GlassButton variant="secondary" onClick={closeApprovalModal}>Cancel</GlassButton>
-              <GlassButton disabled={!bankSlipFile} onClick={approveClaim}>
-                Confirm Approval
-              </GlassButton>
-            </div>
-          </GlassCard>
-        </div>
-      )}
       {rejectingClaim && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm">
           <div className="absolute inset-0" onClick={() => setRejectingClaimTarget(null)} />
           <GlassCard className="w-full max-w-xl p-0 overflow-hidden border border-slate-200 bg-white/95 relative">
             <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50/70">
@@ -1017,9 +1102,9 @@ export default function ClaimsListPage() {
               <GlassButton variant="secondary" onClick={() => setRejectingClaimTarget(null)}>Cancel</GlassButton>
               <GlassButton
                 disabled={!rejectionReason.trim()}
-                onClick={() => {
+                onClick={async () => {
                   if (!rejectingClaimTarget) return;
-                  saveClaimStatus(rejectingClaimTarget, "Rejected", { rejectionReason });
+                  await saveClaimStatus(rejectingClaimTarget, CLAIM_STATUS.REJECTED, { rejectionReason });
                   setRejectingClaimTarget(null);
                   setRejectionReason("");
                 }}
@@ -1050,8 +1135,8 @@ export default function ClaimsListPage() {
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <h4 className="text-xl font-bold text-slate-800">{selectedMemberClaim.patient}</h4>
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${getStatusBadgeClass(selectedMemberClaim.status)}`}>
-                      {selectedMemberClaim.status}
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${getLifecycleBadgeClass(selectedMemberClaim.lifecycleStatus || selectedMemberClaim.status)}`}>
+                      {formatUnifiedClaimStatus(selectedMemberClaim.lifecycleStatus || selectedMemberClaim.status)}
                     </span>
                   </div>
                   <p className="text-sm text-slate-500">{selectedMemberClaim.providerName}</p>
@@ -1141,6 +1226,10 @@ export default function ClaimsListPage() {
                       <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Bank-In Slip</p>
                       <p className="mt-1 text-sm font-medium text-slate-800">{selectedMemberClaim.bankSlipFileName || "Not uploaded"}</p>
                     </div>
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">PV File</p>
+                      <p className="mt-1 text-sm font-medium text-slate-800">{selectedMemberClaim.pvFileName || "Not uploaded"}</p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1188,295 +1277,6 @@ export default function ClaimsListPage() {
               </div>
             </div>
           </div>
-        )}
-      </MobileDetailModal>
-      <MobileDetailModal
-        open={!!selectedPatientClaim}
-        onClose={() => setSelectedPatientClaimId(null)}
-        title="Member Information"
-        contentClassName="sm:max-w-4xl"
-        subtitle={
-          selectedPatientClaim ? (
-            <>
-              Claim: <span className="font-medium text-slate-700">{selectedPatientClaim.id}</span>
-            </>
-          ) : undefined
-        }
-      >
-        {selectedPatientClaim && (
-          <div className="space-y-4">
-              <div className="relative overflow-hidden rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-4">
-                <div className="absolute -right-10 -top-10 h-24 w-24 rounded-full bg-sky-200/30 blur-2xl" />
-                <div className="absolute -left-10 -bottom-10 h-24 w-24 rounded-full bg-emerald-200/30 blur-2xl" />
-                <div className="relative flex flex-col gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white text-sky-600 shadow-sm border border-sky-100">
-                        <span className="text-lg font-bold">
-                        {selectedPatientClaim.patient
-                          .split(" ")
-                          .map((part) => part[0])
-                          .slice(0, 2)
-                          .join("")
-                          .toUpperCase()}
-                      </span>
-                    </div>
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="text-xl font-bold text-slate-800 truncate">{selectedPatientClaim.patient}</h4>
-                          <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-600 border border-slate-200">
-                            {selectedPatientRecord?.relationship || "Employee"}
-                          </span>
-                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                            {selectedPatientRecord?.status || "Unknown"}
-                          </span>
-                        </div>
-                        <p className="text-sm text-slate-500 truncate">
-                          {selectedPatientRecord?.email || "Not linked in mock directory yet"}
-                        </p>
-                      </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 border border-slate-200">
-                      <CreditCard className="h-3.5 w-3.5" />
-                      {selectedPatientRecord?.staffId || "Member ID Pending"}
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 border border-slate-200">
-                      <Building2 className="h-3.5 w-3.5" />
-                      {selectedPatientCompany?.name || selectedPatientRecord?.companyId || "Company Pending"}
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-700">
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                      {selectedPatientRecord?.nationality || "Nationality Pending"}
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-xs font-medium text-violet-700">
-                      <Calendar className="h-3.5 w-3.5" />
-                      DOB {formatDateDisplay(selectedPatientRecord?.dob || "") || "Not Available"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] gap-4">
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">Member Profile</h4>
-                      <span className="text-[11px] font-medium text-slate-400">Read-only</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                        <div className="flex items-center gap-2 text-slate-400 mb-1.5">
-                          <Mail className="h-3.5 w-3.5" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider">Email</span>
-                        </div>
-                        <p className="text-sm font-medium text-slate-800 break-words">
-                          {selectedPatientRecord?.email || "Not linked in mock directory yet"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                        <div className="flex items-center gap-2 text-slate-400 mb-1.5">
-                          <Phone className="h-3.5 w-3.5" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider">Contact Number</span>
-                        </div>
-                        <p className="text-sm font-medium text-slate-800">
-                          {formatPhoneForDisplay(selectedPatientRecord?.phone) || "—"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                        <div className="flex items-center gap-2 text-slate-400 mb-1.5">
-                          <Calendar className="h-3.5 w-3.5" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider">Date of Birth</span>
-                        </div>
-                        <p className="text-sm font-medium text-slate-800">
-                          {formatDateDisplay(selectedPatientRecord?.dob || "") || "—"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                        <div className="flex items-center gap-2 text-slate-400 mb-1.5">
-                          <ShieldCheck className="h-3.5 w-3.5" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider">Gender</span>
-                        </div>
-                        <p className="text-sm font-medium text-slate-800">{selectedPatientRecord?.gender || "—"}</p>
-                      </div>
-                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                        <div className="flex items-center gap-2 text-slate-400 mb-1.5">
-                          <CreditCard className="h-3.5 w-3.5" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider">NRIC / Passport</span>
-                        </div>
-                        <p className="text-sm font-medium text-slate-800">
-                          {selectedPatientRecord?.nricPassport || selectedPatientRecord?.passportNo || "—"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                        <div className="flex items-center gap-2 text-slate-400 mb-1.5">
-                          <Calendar className="h-3.5 w-3.5" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider">Passport Expiry</span>
-                        </div>
-                        <p className="text-sm font-medium text-slate-800">
-                          {formatDateDisplay(selectedPatientRecord?.passportExpiry || "") || "—"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Users className="h-4 w-4 text-sky-500" />
-                      <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">Dependent Details</h4>
-                    </div>
-                    {selectedPatientDependents.length > 0 ? (
-                      <div className="space-y-3">
-                        {selectedPatientDependents.map((dependent) => {
-                          const dependentName = "fullName" in dependent ? dependent.fullName : dependent.name;
-                          const dependentRelation = "staffId" in dependent ? dependent.relationship || "Dependent" : dependent.relation;
-                          const dependentStatus = dependent.status || "Unknown";
-                          const dependentGender = dependent.gender || "—";
-                          const dependentDob = formatDateDisplay(dependent.dob || "") || dependent.dob || "—";
-                          const dependentKey = "staffId" in dependent ? dependent.staffId : `${dependent.name}-${dependent.relation}`;
-
-                          return (
-                            <div
-                              key={dependentKey}
-                              className="rounded-xl bg-slate-50/80 border border-slate-100 p-3"
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-800">{dependentName}</p>
-                                  <p className="text-xs text-slate-500">{dependentRelation}</p>
-                                </div>
-                                <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                                  {dependentStatus}
-                                </span>
-                              </div>
-                              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
-                                <div>
-                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Gender</p>
-                                  <p className="mt-0.5">{dependentGender}</p>
-                                </div>
-                                <div>
-                                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Date of Birth</p>
-                                  <p className="mt-0.5">{dependentDob}</p>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="rounded-xl bg-slate-50/80 border border-slate-100 p-4">
-                        <p className="text-sm font-medium text-slate-700">No dependent records linked.</p>
-                        <p className="mt-1 text-xs text-slate-500">No dependent details are available for this member in the current data.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-emerald-500" />
-                      <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">Membership Summary</h4>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-500">Status</p>
-                        <p className="mt-1 text-xs font-bold text-emerald-700">{selectedPatientRecord?.status || "Unknown"}</p>
-                      </div>
-                      <div className="rounded-xl bg-sky-50 border border-sky-100 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-sky-500">Relationship</p>
-                        <p className="mt-1 text-xs font-bold text-sky-700">{selectedPatientRecord?.relationship || "Employee"}</p>
-                      </div>
-                      <div className="rounded-xl bg-violet-50 border border-violet-100 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-violet-500">Selected Benefits</p>
-                        <p className="mt-1 text-xs font-bold text-violet-700">
-                          {selectedPatientPlan ? countSelectedPlanBenefits(selectedPatientPlan).toString() : "0"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-amber-50 border border-amber-100 p-3">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-amber-500">Configured Limits</p>
-                        <p className="mt-1 text-xs font-bold text-amber-700">
-                          {selectedPatientPlan ? countConfiguredPlanLimits(selectedPatientPlan).toString() : "0"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedPatientPlan && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <ShieldCheck className="h-4 w-4 text-sky-500" />
-                          <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">Plan Configuration</h4>
-                        </div>
-                        <span className="inline-flex items-center rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-sky-700 border border-sky-100">
-                          {formatPlanTypeLabel(selectedPatientPlan.type)}
-                        </span>
-                      </div>
-                      {selectedPatientPlan.type === "lump_sum" ? (
-                        <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Configured Limit</p>
-                          <p className="mt-1 text-lg font-bold text-slate-800">
-                            {formatCurrency(selectedPatientPlan.lumpSumLimit)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            All eligible claims draw down from one shared annual member balance.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {selectedPatientPlan.categories
-                            .filter((category) => category.selected)
-                            .map((category) => (
-                              <div key={category.key} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-800">{category.label}</p>
-                                  <p className="text-[11px] text-slate-500">
-                                    Company default {formatCurrency(category.companyLimit)}
-                                  </p>
-                                </div>
-                                <p className="text-sm font-bold text-slate-800">{formatCurrency(category.limit)}</p>
-                              </div>
-                            ))}
-                          {selectedPatientPlan.categories.every((category) => !category.selected) && (
-                            <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
-                              <p className="text-sm font-medium text-slate-700">No category limits selected for this member.</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {selectedPatientCompany && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck className="h-4 w-4 text-amber-500" />
-                        <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">Coverage Rules</h4>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="rounded-xl bg-amber-50 border border-amber-100 p-3">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-500">Foreigner Policy</p>
-                          <p className="mt-1 text-xs font-bold text-amber-700">
-                            {selectedPatientCompany.planConfig.autoDisablePassport
-                              ? "Auto-disable on passport expiry"
-                              : "Manual passport review"}
-                          </p>
-                        </div>
-                        <div className="rounded-xl bg-purple-50 border border-purple-100 p-3">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-purple-500">Dependent Coverage</p>
-                          <p className="mt-1 text-xs font-bold text-purple-700">
-                            {selectedPatientCompany.planConfig.dependents.sharedLimit
-                              ? "Share primary member limit"
-                              : "Separate dependent allocation"}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                </div>
-              </div>
-            </div>
         )}
       </MobileDetailModal>
       {lastRequestToken && (

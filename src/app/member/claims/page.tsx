@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { MobileDetailModal } from "@/components/ui/MobileDetailModal";
@@ -20,49 +20,72 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatDateDisplay } from "@/lib/formats";
 import { addMemberClaim, ensureMemberClaimsStore } from "@/lib/claimsStore";
-import { ensureMemberSeed, getDependentsByParent, getMemberDirectory, getMemberSession } from "@/lib/memberSession";
-
-const diagnosisOptions = [
-  "Acute Upper Respiratory Infection",
-  "Acute Gastritis",
-  "Viral Fever",
-  "Hypertension",
-  "Type 2 Diabetes Mellitus",
-  "Migraine",
-  "Allergic Rhinitis",
-  "Acute Pharyngitis",
-  "Conjunctivitis",
-  "Low Back Pain",
-];
+import {
+  ensureMemberSeed,
+  getDependentsByParent,
+  getMemberDirectoryServerSnapshot,
+  getMemberDirectorySnapshot,
+  getMemberSeedLoading,
+  getMemberSession,
+  subscribeMemberDirectory,
+  subscribeMemberSession,
+} from "@/lib/memberSession";
+import { ensureCompaniesStore, getCompaniesServerSnapshot, getCompaniesSnapshot, subscribeCompanies } from "@/lib/companyStore";
+import { getMemberLimitOwnerStaffId } from "@/lib/memberPlan";
+import { reserveLimit } from "@/lib/entitlementStore";
+import { mapMemberClaimCategoryToPlanCategory } from "@/lib/claimCategory";
+import { fetchDiagnosisOptions } from "@/lib/diagnosisOptions";
 
 export default function ClaimSubmissionPage() {
   const router = useRouter();
-  ensureMemberClaimsStore();
-  ensureMemberSeed();
+  useEffect(() => {
+    ensureMemberClaimsStore();
+    void ensureMemberSeed();
+    ensureCompaniesStore();
+  }, []);
+
+  const memberSession = useSyncExternalStore(subscribeMemberSession, getMemberSession, () => null);
+  const isMemberSeedLoading = useSyncExternalStore(subscribeMemberSession, getMemberSeedLoading, () => false);
+  const memberDirectory = useSyncExternalStore(
+    subscribeMemberDirectory,
+    getMemberDirectorySnapshot,
+    getMemberDirectoryServerSnapshot
+  );
+  const companies = useSyncExternalStore(subscribeCompanies, getCompaniesSnapshot, getCompaniesServerSnapshot);
+  const [diagnosisOptions, setDiagnosisOptions] = useState<string[]>([]);
   const [step, setStep] = useState(1);
   const totalSteps = 4;
-  const memberSession = getMemberSession();
   const patients = useMemo(() => {
     if (!memberSession) return [];
-    const directory = getMemberDirectory();
+    const formatPatientId = (id: string, relation: string) => {
+      if (relation === "Self") return id;
+      const parts = id.split("-DEP-");
+      if (parts.length !== 2) return id.length > 24 ? `${id.slice(0, 10)}…${id.slice(-6)}` : id;
+      const prefix = parts[0];
+      const suffix = parts[1];
+      if (suffix.length <= 12) return id;
+      return `${prefix}-DEP-${suffix.slice(0, 4)}…${suffix.slice(-4)}`;
+    };
     const primary =
-      directory.find(
+      memberDirectory.find(
         (entry) => entry.companyId === memberSession.companyId && entry.staffId === memberSession.staffId
       ) || null;
     const dependents = getDependentsByParent(memberSession.companyId, memberSession.staffId);
     return [
       {
         id: memberSession.staffId,
+        displayId: formatPatientId(memberSession.staffId, "Self"),
         name: primary?.fullName || memberSession.fullName || memberSession.staffId,
         relation: "Self",
       },
       ...dependents.map((dep) => ({
         id: dep.staffId,
+        displayId: formatPatientId(dep.staffId, dep.relationship || "Dependent"),
         name: dep.fullName,
         relation: dep.relationship || "Dependent",
       })),
     ];
-  }, [memberSession]);
+  }, [memberDirectory, memberSession]);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [visitDate, setVisitDate] = useState("");
   const [referralDate, setReferralDate] = useState("");
@@ -92,6 +115,22 @@ export default function ClaimSubmissionPage() {
     return Math.max(1, Math.ceil(diffMs / 86400000) + 1);
   }, [mcFrom, mcTo]);
   const diagnosisSummary = selectedDiagnoses.join(", ");
+
+  useEffect(() => {
+    let alive = true;
+    fetchDiagnosisOptions()
+      .then((options) => {
+        if (!alive) return;
+        setDiagnosisOptions(options);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setDiagnosisOptions([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const resetForm = () => {
     setStep(1);
@@ -141,6 +180,27 @@ export default function ClaimSubmissionPage() {
     }
 
     const claimId = `CLM-${Date.now()}`;
+    const limitCategory = mapMemberClaimCategoryToPlanCategory(selectedCategory);
+    if (!limitCategory) {
+      setError("Invalid claim category. Please select a supported category.");
+      return;
+    }
+    const amountNumber = Number(amountSubmitted || 0);
+    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
+      setError("Please enter a valid claim amount.");
+      return;
+    }
+    const selectedMember = memberDirectory.find((entry) => entry.staffId === selectedPatient) || null;
+    const company = selectedMember
+      ? companies.find((item) => item.companyId === selectedMember.companyId) || null
+      : null;
+    const memberKey = getMemberLimitOwnerStaffId(selectedMember, company) || selectedPatient;
+    reserveLimit({
+      claimId,
+      memberKey,
+      amount: amountNumber,
+      category: limitCategory,
+    });
     addMemberClaim({
       id: claimId,
       patient: selectedPatientRecord?.name || selectedPatient,
@@ -159,6 +219,9 @@ export default function ClaimSubmissionPage() {
       mcFrom: effectiveMcRequired === "Y" ? mcFrom : "",
       mcTo: effectiveMcRequired === "Y" ? mcTo : "",
       mcDays: effectiveMcRequired === "Y" ? mcDays : 0,
+      memberKey,
+      limitCategory,
+      reservedAmount: amountNumber,
       status: "In review",
       createdAt: new Date().toISOString(),
     });
@@ -237,6 +300,51 @@ export default function ClaimSubmissionPage() {
 
   const prevStep = () => setStep(s => Math.max(s - 1, 1));
 
+  if (isMemberSeedLoading) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-8">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/member/dashboard">
+              <GlassButton variant="ghost" size="icon" className="rounded-full">
+                <ArrowLeft className="w-5 h-5" />
+              </GlassButton>
+            </Link>
+            <h1 className="text-2xl font-bold text-slate-800">Submit New Claim</h1>
+          </div>
+        </div>
+
+        <GlassCard className="p-6">
+          <p className="text-sm text-slate-600">正在读取会员会话与可提交对象，请稍候...</p>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  if (!memberSession) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-8">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/member/dashboard">
+              <GlassButton variant="ghost" size="icon" className="rounded-full">
+                <ArrowLeft className="w-5 h-5" />
+              </GlassButton>
+            </Link>
+            <h1 className="text-2xl font-bold text-slate-800">Submit New Claim</h1>
+          </div>
+        </div>
+
+        <GlassCard className="p-6">
+          <p className="text-sm text-slate-600">Member session not found. Please login again.</p>
+          <div className="mt-4">
+            <GlassButton onClick={() => router.push("/member/login")}>Go to Login</GlassButton>
+          </div>
+        </GlassCard>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-8">
       <div className="flex items-center justify-between">
@@ -261,15 +369,6 @@ export default function ClaimSubmissionPage() {
         </div>
       </div>
 
-      {!memberSession && (
-        <GlassCard className="p-6">
-          <p className="text-sm text-slate-600">Member session not found. Please login again.</p>
-          <div className="mt-4">
-            <GlassButton onClick={() => router.push("/member/login")}>Go to Login</GlassButton>
-          </div>
-        </GlassCard>
-      )}
-
       <GlassCard className="p-8">
         {step === 1 && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
@@ -285,7 +384,9 @@ export default function ClaimSubmissionPage() {
               {patients.map((patient) => (
                 <button
                   key={patient.id}
-                  className="text-left group"
+                  type="button"
+                  className="text-left group rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                  aria-pressed={selectedPatient === patient.id}
                   onClick={() => {
                     setSelectedPatient(patient.id);
                     if (patient.relation !== "Self") {
@@ -297,12 +398,17 @@ export default function ClaimSubmissionPage() {
                 >
                   <GlassCard
                     className={cn(
-                      "p-4 border-2 border-transparent transition-all hover:bg-white/60",
-                      selectedPatient === patient.id ? "border-sky-400 bg-white/70" : "group-hover:border-sky-300"
+                      "relative p-4 border-2 border-transparent transition-all hover:bg-white/60",
+                      selectedPatient === patient.id
+                        ? "border-sky-500 bg-white/80 shadow-md"
+                        : "group-hover:border-sky-300"
                     )}
                   >
+                    {selectedPatient === patient.id && (
+                      <CheckCircle2 className="absolute top-3 right-3 w-5 h-5 text-sky-600" />
+                    )}
                     <p className="font-bold text-slate-800">{patient.name}</p>
-                    <p className="text-xs text-slate-500">{patient.relation} • {patient.id}</p>
+                    <p className="text-xs text-slate-500" title={patient.id}>{patient.relation} • {patient.displayId}</p>
                   </GlassCard>
                 </button>
               ))}

@@ -2,32 +2,38 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
-import {
-  ArrowLeft,
-  FileText,
-  CheckCircle,
-  XCircle,
-  AlertTriangle,
-  Download,
-  Maximize2
-} from "lucide-react";
+import { fetchAdminSession, type AdminSession } from "@/lib/adminSession";
+import { ArrowLeft, FileText, CheckCircle, XCircle, AlertTriangle, Download, Maximize2, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { type ChangeEvent, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import { downloadText } from "@/lib/download";
-import { readFileAsDataUrl } from "@/lib/fileData";
 import { formatCurrency, formatDateDisplay } from "@/lib/formats";
-import { canTransition, CLAIM_STATUS, type ClaimStatus } from "@/lib/claimFlow";
+import { CLAIM_STATUS } from "@/lib/claimFlow";
 import { notifyClaimStatusEmail } from "@/lib/claimNotifications";
+import { getProviderClaimSignedUrl } from "@/lib/providerClaimStorage";
+import { canDeleteAdminResource, canOperateAdminPage } from "@/lib/adminPermissions";
+import {
+  ensureProviderClaimsStore,
+  getProviderClaimByClaimNumber,
+  getProviderClaimById,
+  getProviderClaimDocuments,
+  getProviderClaimsSnapshot,
+  refreshProviderClaimsSnapshot,
+  subscribeProviderClaims,
+  updateProviderClaimLifecycle,
+} from "@/lib/providerClaimsStore";
 import { ensureProviderSeed, getProviderDirectory } from "@/lib/providerSession";
 import {
   addAdminClaimRequest,
-  ensureAdminClaimsSeed,
+  deleteMemberClaim as removeMemberClaim,
   getAdminClaimsSnapshot,
+  refreshAdminClaimsSnapshot,
   removeAdminClaimRequest,
   subscribeAdminClaims,
-  normalizeClaimStatus,
   updateAdminClaimStatus,
 } from "@/lib/claimsStore";
+import { formatUnifiedClaimStatus, normalizeUnifiedClaimStatus } from "@/lib/unifiedClaimLifecycle";
 
 type ClaimDetailClientProps = {
   claimId: string;
@@ -41,19 +47,44 @@ const chargeSections = [
   { key: "immunization", label: "Immunization" },
 ] as const;
 
+const normalizeProviderClaimStatus = (status?: string) => String(status || "").trim().toLowerCase();
+
+const formatProviderClaimStatusLabel = (status?: string) => {
+  switch (normalizeProviderClaimStatus(status)) {
+    case "in_process":
+      return "In Process";
+    case "request_additional_information":
+      return "Request Additional Information";
+    case "approved":
+      return "Approved";
+    case "rejected":
+      return "Rejected";
+    default:
+      return "Submitted";
+  }
+};
+
 export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
-  ensureAdminClaimsSeed();
+  const [adminSession, setAdminSession] = useState<AdminSession | null>(null);
+  const router = useRouter();
   const claims = useSyncExternalStore(
     subscribeAdminClaims,
     getAdminClaimsSnapshot,
     getAdminClaimsSnapshot
   );
+  useSyncExternalStore(
+    subscribeProviderClaims,
+    getProviderClaimsSnapshot,
+    getProviderClaimsSnapshot
+  );
   const claim = useMemo(() => claims.find((entry) => entry.id === claimId) || null, [claimId, claims]);
+  const providerClaim = getProviderClaimById(claimId) || getProviderClaimByClaimNumber(claimId);
+  const providerClaimDocuments = providerClaim ? getProviderClaimDocuments(providerClaim.id) : [];
   const diagnosisList = claim?.diagnosisCodes?.length ? claim.diagnosisCodes : claim?.diagnosis ? [claim.diagnosis] : [];
-  const selectedChargeItems = claim?.selectedChargeItems || {};
-  const claimStatus = useMemo<ClaimStatus>(
-    () => normalizeClaimStatus(claim?.status || CLAIM_STATUS.IN_REVIEW) as ClaimStatus,
-    [claim?.status]
+  const selectedChargeItems = useMemo(() => claim?.selectedChargeItems || {}, [claim?.selectedChargeItems]);
+  const memberUnifiedStatus = useMemo(
+    () => normalizeUnifiedClaimStatus(claim?.lifecycleStatus || claim?.status),
+    [claim?.lifecycleStatus, claim?.status]
   );
   const providerDirectory = useMemo(() => {
     ensureProviderSeed();
@@ -74,23 +105,42 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
       ].filter((entry) => entry.amount > 0 || (selectedChargeItems[entry.key] || []).length > 0),
     [claim, selectedChargeItems]
   );
-  const canReject = !!claim && canTransition(claimStatus, CLAIM_STATUS.REJECTED);
-  const canApprove = !!claim && canTransition(claimStatus, CLAIM_STATUS.APPROVED);
-  const canRequestInfo = !!claim && (claimStatus === CLAIM_STATUS.IN_REVIEW || claimStatus === CLAIM_STATUS.IN_PROGRESS);
-  const canGenerateListing = !!claim && canTransition(claimStatus, CLAIM_STATUS.LISTED);
-  const canMarkPaid = !!claim && canTransition(claimStatus, CLAIM_STATUS.PAID);
-  const canUploadPv = !!claim && canTransition(claimStatus, CLAIM_STATUS.PV_UPLOADED);
+  const canOperateClaimsPage = adminSession ? canOperateAdminPage(adminSession.role, "/admin/claims") : false;
+  const canDeleteClaims = adminSession ? canDeleteAdminResource(adminSession.role) : false;
+  const canMarkInProcess = !!claim && memberUnifiedStatus === CLAIM_STATUS.SUBMITTED;
+  const canRequestInfo =
+    !!claim &&
+    (memberUnifiedStatus === CLAIM_STATUS.SUBMITTED || memberUnifiedStatus === CLAIM_STATUS.IN_PROCESS);
+  const canReject =
+    !!claim &&
+    (memberUnifiedStatus === CLAIM_STATUS.SUBMITTED ||
+      memberUnifiedStatus === CLAIM_STATUS.IN_PROCESS ||
+      memberUnifiedStatus === CLAIM_STATUS.REQUEST_ADDITIONAL_INFORMATION);
   const [activeTab, setActiveTab] = useState<"details" | "coverage">("details");
   const [isRequestOpen, setIsRequestOpen] = useState(false);
-  const [isApproveOpen, setIsApproveOpen] = useState(false);
-  const [isPvOpen, setIsPvOpen] = useState(false);
   const [requestNote, setRequestNote] = useState("");
-  const [bankSlipFile, setBankSlipFile] = useState<{ name: string; dataUrl: string } | null>(null);
-  const [pvFile, setPvFile] = useState<{ name: string; dataUrl: string } | null>(null);
-  const [pvError, setPvError] = useState("");
-  const [approvalError, setApprovalError] = useState("");
+  const [rejectionReason, setRejectionReason] = useState("");
   const [lastRequestToken, setLastRequestToken] = useState("");
   const [flowError, setFlowError] = useState("");
+  const [isRejectOpen, setIsRejectOpen] = useState(false);
+  const [providerReviewNote, setProviderReviewNote] = useState("");
+  const [providerActionPending, setProviderActionPending] = useState(false);
+
+  useEffect(() => {
+    void fetchAdminSession().then((session) => setAdminSession(session));
+    void refreshAdminClaimsSnapshot();
+    ensureProviderClaimsStore();
+    void refreshProviderClaimsSnapshot();
+  }, []);
+
+  useEffect(() => {
+    if (!providerClaim) {
+      setProviderReviewNote("");
+      return;
+    }
+
+    setProviderReviewNote(providerClaim.reviewNote || "");
+  }, [providerClaim]);
 
   const notifyProviderStatus = (fromStatus: string, toStatus: string, note?: string) => {
     if (!providerContactEmail) return;
@@ -109,112 +159,69 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
 
     void notifyClaimStatusEmail({ to: providerContactEmail, subject, text });
   };
-  const closeApprovalModal = () => {
-    setIsApproveOpen(false);
-    setApprovalError("");
+  const closeRejectModal = () => {
+    setIsRejectOpen(false);
+    setRejectionReason("");
   };
-  const closePvModal = () => {
-    setIsPvOpen(false);
-    setPvFile(null);
-    setPvError("");
+  const markInProcess = () => {
+    void (async () => {
+      try {
+        if (!canOperateClaimsPage) {
+          setFlowError("You have read-only access on Claims Management.");
+          return;
+        }
+        setFlowError("");
+        const fromStatus = claim?.status || "";
+        await updateAdminClaimStatus(claimId, CLAIM_STATUS.IN_PROCESS);
+        notifyProviderStatus(fromStatus, formatUnifiedClaimStatus(CLAIM_STATUS.IN_PROCESS));
+      } catch (error) {
+        setFlowError(error instanceof Error ? error.message : "Unable to mark this claim in process.");
+      }
+    })();
   };
-  const handleBankSlipSelection = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      setBankSlipFile(null);
+  const rejectClaim = () => {
+    if (!canOperateClaimsPage) {
+      setFlowError("You have read-only access on Claims Management.");
       return;
     }
-
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      setBankSlipFile({ name: file.name, dataUrl });
-      setApprovalError("");
-    } catch (error) {
-      setBankSlipFile(null);
-      setApprovalError(error instanceof Error ? error.message : "Unable to upload the bank-in slip.");
-    } finally {
-      event.target.value = "";
-    }
-  };
-  const handlePvSelection = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      setPvFile(null);
+    if (!rejectionReason.trim()) {
+      setFlowError("Please provide a rejection reason.");
       return;
     }
-
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      setPvFile({ name: file.name, dataUrl });
-      setPvError("");
-    } catch (error) {
-      setPvFile(null);
-      setPvError(error instanceof Error ? error.message : "Unable to upload the PV file.");
-    } finally {
-      event.target.value = "";
-    }
+    void (async () => {
+      try {
+        setFlowError("");
+        const fromStatus = claim?.status || "";
+        await updateAdminClaimStatus(claimId, CLAIM_STATUS.REJECTED, {
+          rejectionReason: rejectionReason.trim(),
+        });
+        notifyProviderStatus(fromStatus, formatUnifiedClaimStatus(CLAIM_STATUS.REJECTED), rejectionReason);
+        closeRejectModal();
+      } catch (error) {
+        setFlowError(error instanceof Error ? error.message : "Unable to reject this claim.");
+      }
+    })();
   };
-  const approveClaim = () => {
-    if (!bankSlipFile) {
-      setApprovalError("Upload the bank-in slip before approving this claim.");
-      return;
-    }
-
-    try {
-      setFlowError("");
-      const fromStatus = claim?.status || "";
-      updateAdminClaimStatus(claimId, "Approved", {
-        bankSlipFileName: bankSlipFile.name,
-        bankSlipDataUrl: bankSlipFile.dataUrl,
-        bankSlipUploadedAt: new Date().toISOString(),
-      });
-      notifyProviderStatus(fromStatus, "Approved");
-      closeApprovalModal();
-    } catch (error) {
-      setApprovalError(error instanceof Error ? error.message : "Unable to approve this claim.");
-    }
-  };
-  const generateListing = () => {
-    try {
-      setFlowError("");
-      const fromStatus = claim?.status || "";
-      updateAdminClaimStatus(claimId, CLAIM_STATUS.LISTED);
-      notifyProviderStatus(fromStatus, CLAIM_STATUS.LISTED);
-      downloadText(`claim-listing-${claimId}.txt`, `Claim ${claimId} listed on ${new Date().toISOString()}`);
-    } catch (error) {
-      setFlowError(error instanceof Error ? error.message : "Unable to generate listing for this claim.");
-    }
-  };
-  const markPaid = () => {
-    try {
-      setFlowError("");
-      const fromStatus = claim?.status || "";
-      updateAdminClaimStatus(claimId, CLAIM_STATUS.PAID);
-      notifyProviderStatus(fromStatus, CLAIM_STATUS.PAID);
-    } catch (error) {
-      setFlowError(error instanceof Error ? error.message : "Unable to mark this claim as paid.");
-    }
-  };
-  const confirmPvUpload = () => {
-    if (!pvFile) {
-      setPvError("Select the PV file before uploading.");
-      return;
-    }
-
-    try {
-      setPvError("");
-      setFlowError("");
-      const fromStatus = claim?.status || "";
-      updateAdminClaimStatus(claimId, CLAIM_STATUS.PV_UPLOADED, {
-        pvFileName: pvFile.name,
-        pvDataUrl: pvFile.dataUrl,
-        pvUploadedAt: new Date().toISOString(),
-      });
-      notifyProviderStatus(fromStatus, CLAIM_STATUS.PV_UPLOADED);
-      closePvModal();
-    } catch (error) {
-      setPvError(error instanceof Error ? error.message : "Unable to upload the PV for this claim.");
-    }
+  const deleteClaim = () => {
+    void (async () => {
+      try {
+        if (!canDeleteClaims) {
+          setFlowError("Only super admin can delete claims.");
+          return;
+        }
+        if (
+          typeof window !== "undefined" &&
+          !window.confirm(`Delete claim ${claimId}? This action cannot be undone in mock view.`)
+        ) {
+          return;
+        }
+        setFlowError("");
+        await removeMemberClaim(claimId);
+        router.push("/admin/claims");
+      } catch (error) {
+        setFlowError(error instanceof Error ? error.message : "Unable to delete this claim.");
+      }
+    })();
   };
   const openPreviewTab = () => {
     if (typeof window === "undefined") return;
@@ -238,6 +245,294 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
     const blob = new Blob([html], { type: "text/html" });
     window.open(URL.createObjectURL(blob), "_blank", "noopener,noreferrer");
   };
+  const openProviderClaimDocument = (storagePath: string) => {
+    void (async () => {
+      try {
+        setFlowError("");
+        const signedUrl = await getProviderClaimSignedUrl(storagePath);
+        if (typeof window !== "undefined") {
+          window.open(signedUrl, "_blank", "noopener,noreferrer");
+        }
+      } catch (error) {
+        setFlowError(error instanceof Error ? error.message : "Unable to open the provider claim document.");
+      }
+    })();
+  };
+  const openProviderApprovalAttachment = (attachmentPath: string) => {
+    if (typeof window === "undefined") return;
+    window.open(attachmentPath, "_blank", "noopener,noreferrer");
+  };
+  const runProviderClaimAction = (action: "in_process" | "rejected" | "request_additional_information") => {
+    void (async () => {
+      try {
+        if (!canOperateClaimsPage) {
+          setFlowError("You have read-only access on Claims Management.");
+          return;
+        }
+        if (!providerClaim) return;
+        if (!adminSession?.profileId) {
+          setFlowError("Unable to identify the current admin reviewer.");
+          return;
+        }
+
+        const nowIso = new Date().toISOString();
+        const note = providerReviewNote.trim();
+        if (action === "rejected" && !note) {
+          setFlowError("Please provide a rejection reason.");
+          return;
+        }
+        if (action === "request_additional_information" && !note) {
+          setFlowError("Please explain what additional information is needed.");
+          return;
+        }
+        setFlowError("");
+        setProviderActionPending(true);
+        if (action === "in_process") {
+          await updateProviderClaimLifecycle(providerClaim.id, {
+            status: "in_process",
+            reviewed_at: nowIso,
+            reviewed_by_profile_id: adminSession.profileId,
+            review_note: null,
+          });
+          setProviderReviewNote("");
+          return;
+        }
+
+        if (action === "rejected") {
+          await updateProviderClaimLifecycle(providerClaim.id, {
+            status: "rejected",
+            reviewed_at: nowIso,
+            reviewed_by_profile_id: adminSession.profileId,
+            review_note: note,
+          });
+          return;
+        }
+
+        if (action === "request_additional_information") {
+          await updateProviderClaimLifecycle(providerClaim.id, {
+            status: "request_additional_information",
+            reviewed_at: nowIso,
+            reviewed_by_profile_id: adminSession.profileId,
+            review_note: note,
+          });
+          return;
+        }
+      } catch (error) {
+        setFlowError(error instanceof Error ? error.message : "Unable to update this provider claim.");
+      } finally {
+        setProviderActionPending(false);
+      }
+    })();
+  };
+
+  if (providerClaim && !claim) {
+    const providerClaimStatus = normalizeProviderClaimStatus(providerClaim.status);
+    const canMarkProviderInProcess = providerClaimStatus === "submitted";
+    const canRequestProviderInfo = ["submitted", "in_process"].includes(providerClaimStatus);
+    const canRejectProviderClaim = ["submitted", "in_process", "request_additional_information"].includes(
+      providerClaimStatus
+    );
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/admin/claims">
+              <GlassButton variant="ghost" size="icon" className="h-10 w-10 p-0 rounded-full">
+                <ArrowLeft className="w-5 h-5" />
+              </GlassButton>
+            </Link>
+            <div>
+              <h1 className="text-xl font-bold text-slate-800">
+                Provider Claim {providerClaim.claimNumber || providerClaim.id.slice(0, 8).toUpperCase()}
+              </h1>
+              <p className="text-sm text-slate-500">
+                Submitted on{" "}
+                {formatDateDisplay(
+                  providerClaim.submittedAt || providerClaim.createdAt || providerClaim.treatmentDate
+                ) ||
+                  providerClaim.submittedAt ||
+                  providerClaim.createdAt ||
+                  providerClaim.treatmentDate}
+              </p>
+            </div>
+          </div>
+          {canOperateClaimsPage ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <GlassButton
+                variant="ghost"
+                className="h-9 px-4 text-sm text-sky-700 border border-sky-200 bg-sky-50/70 hover:bg-sky-100 disabled:opacity-60"
+                disabled={!canMarkProviderInProcess || providerActionPending}
+                onClick={() => runProviderClaimAction("in_process")}
+              >
+                Mark In Process
+              </GlassButton>
+              <GlassButton
+                variant="ghost"
+                className="h-9 px-4 text-sm text-rose-700 border border-rose-200 bg-rose-50/70 hover:bg-rose-100 disabled:opacity-60"
+                disabled={!canRejectProviderClaim || providerActionPending}
+                onClick={() => runProviderClaimAction("rejected")}
+              >
+                Reject
+              </GlassButton>
+              <GlassButton
+                variant="ghost"
+                className="h-9 px-4 text-sm text-amber-700 border border-amber-200 bg-amber-50/70 hover:bg-amber-100 disabled:opacity-60"
+                disabled={!canRequestProviderInfo || providerActionPending}
+                onClick={() => runProviderClaimAction("request_additional_information")}
+              >
+                Request Additional Information
+              </GlassButton>
+            </div>
+          ) : null}
+        </div>
+        {adminSession && !canOperateClaimsPage ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            You have read-only access on Claims Management. Review is available, but status changes are disabled.
+          </div>
+        ) : null}
+
+        {flowError && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {flowError}
+          </div>
+        )}
+
+        <GlassCard className="space-y-4 p-5">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">Admin Review Controls</h2>
+            <p className="text-sm text-slate-500">
+              Admin review ends at `in_process`. Use review notes for rejection or more-information requests. Final payment completion happens in Accountant Workspace.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-slate-700">Review Note</label>
+              <textarea
+                className={`w-full glass-input p-3 text-sm h-32 resize-none ${!canOperateClaimsPage ? "bg-slate-50/50" : ""}`}
+                placeholder={
+                  canOperateClaimsPage
+                    ? "Required for rejection and request additional information."
+                    : "Read-only review note."
+                }
+                value={providerReviewNote}
+                readOnly={!canOperateClaimsPage}
+                onChange={(event) => setProviderReviewNote(event.target.value)}
+              />
+              <p className="text-xs text-slate-400">
+                {canOperateClaimsPage
+                  ? "Reject and Request Additional Information require a note. Mark In Process clears it."
+                  : "Read-only users can review the latest note but cannot edit it here."}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Historical Payment Proof</p>
+              <p className="mt-1 text-sm text-slate-700">
+                {providerClaim.approvalAttachmentName || "No payment proof uploaded yet."}
+              </p>
+              {providerClaim.approvalAttachmentPath && providerClaim.approvalAttachmentName ? (
+                <GlassButton
+                  variant="secondary"
+                  className="mt-3 h-9 px-4 text-sm"
+                  onClick={() => openProviderApprovalAttachment(providerClaim.approvalAttachmentPath!)}
+                >
+                  View Current Attachment
+                </GlassButton>
+              ) : null}
+            </div>
+          </div>
+        </GlassCard>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+          <GlassCard className="space-y-4 p-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="text-lg font-bold text-slate-800">{providerClaim.patientName || "Unlinked member"}</h2>
+              <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                {formatProviderClaimStatusLabel(providerClaim.status)}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Patient ID</p>
+                <p className="mt-1 text-sm font-medium text-slate-800">
+                  {providerClaim.patientStaffId || providerClaim.memberRecordId || providerClaim.dependentId || "Not linked"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Provider</p>
+                <p className="mt-1 text-sm font-medium text-slate-800">
+                  {providerClaim.providerName || providerClaim.providerId || "Unknown provider"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Invoice Number</p>
+                <p className="mt-1 text-sm font-medium text-slate-800">
+                  {providerClaim.invoiceNumber || providerClaim.claimNumber || "Not submitted"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Treatment Date</p>
+                <p className="mt-1 text-sm font-medium text-slate-800">
+                  {formatDateDisplay(providerClaim.treatmentDate) || providerClaim.treatmentDate || "Not submitted"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Service Type</p>
+                <p className="mt-1 text-sm font-medium text-slate-800">{providerClaim.serviceType || "Not submitted"}</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Amount</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800">
+                  {formatCurrency(providerClaim.totalAmount)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 md:col-span-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Diagnosis Summary</p>
+                <p className="mt-1 text-sm font-medium text-slate-800">
+                  {providerClaim.diagnosisSummary || providerClaim.diagnosisCode || "Not submitted"}
+                </p>
+              </div>
+            </div>
+          </GlassCard>
+
+          <GlassCard className="space-y-4 p-5">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Submitted Documents</h2>
+              <p className="text-sm text-slate-500">Storage-backed files attached to this provider submission.</p>
+            </div>
+            {providerClaimDocuments.length === 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-6 text-sm text-slate-500">
+                No provider claim documents were found for this submission.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {providerClaimDocuments.map((document) => (
+                  <div
+                    key={document.id}
+                    className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">
+                        {document.fileName || document.docType}
+                      </p>
+                      <p className="mt-1 text-xs uppercase tracking-wide text-slate-500">{document.docType}</p>
+                    </div>
+                    <GlassButton
+                      variant="secondary"
+                      className="h-9 px-4 text-sm"
+                      onClick={() => openProviderClaimDocument(document.storagePath)}
+                    >
+                      Open Document
+                    </GlassButton>
+                  </div>
+                ))}
+              </div>
+            )}
+          </GlassCard>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-[calc(100vh-6rem)] flex flex-col gap-4">
@@ -251,7 +546,9 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
           <div>
             <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
               Claim #{claimId}
-              <span className="text-sm font-medium px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">{claim?.status || "In review"}</span>
+              <span className="text-sm font-medium px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full">
+                {formatUnifiedClaimStatus(claim?.lifecycleStatus || claim?.status)}
+              </span>
             </h1>
             <p className="text-sm text-slate-500">
               Submitted on {formatDateDisplay(claim?.submittedAt || claim?.createdAt || claim?.date || "") || "Unknown"}{" "}
@@ -260,59 +557,55 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <GlassButton
-            variant="ghost"
-            className="h-10 w-10 p-0 inline-flex items-center justify-center text-red-600 hover:text-red-700 hover:bg-red-50 disabled:text-slate-300 disabled:hover:bg-transparent"
-            title="Reject Claim"
-            disabled={!canReject}
-            onClick={() => {
-              try {
-                setFlowError("");
-                const fromStatus = claim?.status || "";
-                updateAdminClaimStatus(claimId, "Rejected");
-                notifyProviderStatus(fromStatus, "Rejected");
-              } catch (error) {
-                setFlowError(error instanceof Error ? error.message : "Unable to reject this claim.");
-              }
-            }}
-          >
-            <XCircle className="w-4 h-4" />
-          </GlassButton>
-          <GlassButton
-            variant="ghost"
-            className="h-10 w-10 p-0 inline-flex items-center justify-center text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-            title="Request Additional Information"
-            disabled={!canRequestInfo}
-            onClick={() => setIsRequestOpen(true)}
-          >
-            <AlertTriangle className="w-4 h-4" />
-          </GlassButton>
-          <GlassButton
-            variant="ghost"
-            className="h-10 w-10 p-0 inline-flex items-center justify-center text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 disabled:text-slate-300 disabled:hover:bg-transparent"
-            title="Approve Claim"
-            disabled={!canApprove}
-            onClick={() => setIsApproveOpen(true)}
-          >
-            <CheckCircle className="w-4 h-4" />
-          </GlassButton>
-          {canGenerateListing && (
-            <GlassButton className="ml-2" onClick={generateListing}>
-              Generate Listing
+          {canOperateClaimsPage ? (
+            <>
+              <GlassButton
+                variant="ghost"
+                className="h-10 px-3 inline-flex items-center justify-center text-sky-700 hover:text-sky-800 hover:bg-sky-50 disabled:text-slate-300 disabled:hover:bg-transparent"
+                title="Mark In Process"
+                disabled={!canMarkInProcess}
+                onClick={markInProcess}
+              >
+                In Process
+              </GlassButton>
+              <GlassButton
+                variant="ghost"
+                className="h-10 w-10 p-0 inline-flex items-center justify-center text-red-600 hover:text-red-700 hover:bg-red-50 disabled:text-slate-300 disabled:hover:bg-transparent"
+                title="Reject Claim"
+                disabled={!canReject}
+                onClick={() => setIsRejectOpen(true)}
+              >
+                <XCircle className="w-4 h-4" />
+              </GlassButton>
+              <GlassButton
+                variant="ghost"
+                className="h-10 w-10 p-0 inline-flex items-center justify-center text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                title="Request Additional Information"
+                disabled={!canRequestInfo}
+                onClick={() => setIsRequestOpen(true)}
+              >
+                <AlertTriangle className="w-4 h-4" />
+              </GlassButton>
+            </>
+          ) : null}
+          {canDeleteClaims ? (
+            <GlassButton
+              variant="ghost"
+              className="h-10 w-10 p-0 inline-flex items-center justify-center text-slate-500 hover:text-rose-700 hover:bg-rose-50"
+              title="Delete Claim"
+              aria-label="Delete Claim"
+              onClick={deleteClaim}
+            >
+              <Trash2 className="w-4 h-4" />
             </GlassButton>
-          )}
-          {canMarkPaid && (
-            <GlassButton className="ml-2" onClick={markPaid}>
-              Mark Paid
-            </GlassButton>
-          )}
-          {canUploadPv && (
-            <GlassButton className="ml-2" onClick={() => setIsPvOpen(true)}>
-              Upload PV
-            </GlassButton>
-          )}
+          ) : null}
         </div>
       </div>
+      {adminSession && !canOperateClaimsPage ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          You have read-only access on Claims Management. Review is available, but status changes and deletion are disabled.
+        </div>
+      ) : null}
       {flowError && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {flowError}
@@ -502,45 +795,27 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
                   <div className="space-y-3 bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
                     <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-2">
                       <CheckCircle className="w-3 h-3" />
-                      Payment Status
+                      Historical Payment Attachments
                     </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-xs text-slate-500">Bank-in Date</label>
-                        <input
-                          type="date"
-                          className="h-12 w-full glass-input px-3 py-2 text-sm"
-                          defaultValue={claim?.bankSlipUploadedAt?.slice(0, 10) || ""}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-slate-500">Uploaded Bank Slip</label>
-                        <input
-                          type="file"
-                          accept=".pdf,image/*"
-                          className="h-12 w-full glass-input px-3 py-2 bg-white text-sm text-slate-600 file:mr-3 file:h-8 file:rounded-md file:border file:border-slate-200 file:bg-slate-100 file:px-3 file:py-1 file:text-[10px] file:font-semibold file:uppercase file:tracking-wide file:text-slate-600 hover:file:bg-slate-200/80"
-                          onChange={handleBankSlipSelection}
-                        />
-                        {(bankSlipFile?.name || claim?.bankSlipFileName) && (
-                          <p className="text-[11px] text-slate-500">
-                            {bankSlipFile?.name || claim?.bankSlipFileName}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3 bg-violet-50/50 p-4 rounded-xl border border-violet-100">
-                    <h4 className="text-xs font-bold text-violet-800 uppercase tracking-wider flex items-center gap-2">
-                      <FileText className="w-3 h-3" />
-                      PV Upload
-                    </h4>
+                    <p className="text-sm text-slate-500">
+                      These files remain visible for already-completed historical claims, but admin review no longer manages paid or PV steps here.
+                    </p>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div className="rounded-xl border border-violet-100 bg-white/80 p-3">
+                      <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Payment Proof</p>
+                        <p className="mt-1 text-sm font-medium text-slate-800">{claim?.bankSlipFileName || "Not uploaded"}</p>
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Payment Proof Uploaded At</p>
+                        <p className="mt-1 text-sm font-medium text-slate-800">
+                          {claim?.bankSlipUploadedAt ? formatDateDisplay(claim.bankSlipUploadedAt) : "Not uploaded"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">PV File</p>
                         <p className="mt-1 text-sm font-medium text-slate-800">{claim?.pvFileName || "Not uploaded"}</p>
                       </div>
-                      <div className="rounded-xl border border-violet-100 bg-white/80 p-3">
+                      <div className="rounded-xl border border-slate-100 bg-white/80 p-3">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">PV Uploaded At</p>
                         <p className="mt-1 text-sm font-medium text-slate-800">
                           {claim?.pvUploadedAt ? formatDateDisplay(claim.pvUploadedAt) : "Not uploaded"}
@@ -564,9 +839,11 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="text-xs text-slate-500 mb-1 block">Internal Notes</label>
-                    <textarea className="w-full glass-input p-3 text-sm h-24 resize-none" placeholder="Add notes for the finance team..." />
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Review Status</p>
+                    <p className="mt-1 text-sm font-medium text-slate-800">
+                      {formatUnifiedClaimStatus(claim?.lifecycleStatus || claim?.status)}
+                    </p>
                   </div>
                 </div>
               </>
@@ -626,12 +903,12 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
       </div>
 
       {isRequestOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm">
           <div className="absolute inset-0" onClick={() => setIsRequestOpen(false)} />
           <GlassCard className="w-full max-w-xl p-0 overflow-hidden border border-slate-200 bg-white/95 relative">
             <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50/70">
               <h3 className="text-lg font-bold text-slate-800">Request Additional Information</h3>
-              <p className="text-sm text-slate-500">Send a note to the provider for missing details.</p>
+              <p className="text-sm text-slate-500">Send a note for the claimant to provide the missing details.</p>
             </div>
             <div className="p-6 space-y-4">
               <div className="space-y-1.5">
@@ -644,7 +921,7 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
                   value={requestNote}
                   onChange={(e) => setRequestNote(e.target.value)}
                 />
-                <p className="text-xs text-slate-400">Keep the message short and actionable for the provider.</p>
+                <p className="text-xs text-slate-400">Keep the message short and actionable for the claimant.</p>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-200/70 bg-slate-50 flex justify-end gap-3">
@@ -652,19 +929,29 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
               <GlassButton
                 disabled={!requestNote.trim()}
                 onClick={() => {
+                  if (!canOperateClaimsPage) {
+                    setFlowError("You have read-only access on Claims Management.");
+                    return;
+                  }
                   const token = `${claimId}-${Date.now()}`;
                   addAdminClaimRequest({ token, id: claimId, note: requestNote.trim(), createdAt: new Date().toISOString() });
-                  try {
-                    setFlowError("");
-                    const fromStatus = claim?.status || "";
-                    updateAdminClaimStatus(claimId, "In progress");
-                    notifyProviderStatus(fromStatus, "In progress", requestNote);
-                  } catch (error) {
-                    setFlowError(error instanceof Error ? error.message : "Unable to update this claim.");
-                  }
-                  setLastRequestToken(token);
-                  setRequestNote("");
-                  setIsRequestOpen(false);
+                  void (async () => {
+                    try {
+                      setFlowError("");
+                      const fromStatus = claim?.status || "";
+                      await updateAdminClaimStatus(claimId, CLAIM_STATUS.REQUEST_ADDITIONAL_INFORMATION);
+                      notifyProviderStatus(
+                        fromStatus,
+                        formatUnifiedClaimStatus(CLAIM_STATUS.REQUEST_ADDITIONAL_INFORMATION),
+                        requestNote
+                      );
+                      setLastRequestToken(token);
+                      setRequestNote("");
+                      setIsRequestOpen(false);
+                    } catch (error) {
+                      setFlowError(error instanceof Error ? error.message : "Unable to update this claim.");
+                    }
+                  })();
                 }}
               >
                 Send Request
@@ -673,77 +960,38 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
           </GlassCard>
         </div>
       )}
-      {isApproveOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="absolute inset-0" onClick={closeApprovalModal} />
+      {isRejectOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm">
+          <div className="absolute inset-0" onClick={closeRejectModal} />
           <GlassCard className="w-full max-w-xl p-0 overflow-hidden border border-slate-200 bg-white/95 relative">
             <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50/70">
-              <h3 className="text-lg font-bold text-slate-800">Approve Claim</h3>
-              <p className="text-sm text-slate-500">Confirm approval using the bank-in slip selected in Payment Status.</p>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-                <p className="text-sm font-medium text-emerald-900">Member portal download will be enabled from this uploaded file.</p>
-                <p className="mt-1 text-xs text-emerald-700">Claim: {claimId}</p>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">
-                  Bank-In Slip <span className="text-red-500">*</span>
-                </label>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                  {bankSlipFile?.name || "Upload the bank-in slip in Payment Status before approval."}
-                </div>
-              </div>
-              {approvalError && (
-                <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                  {approvalError}
-                </p>
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-slate-200/70 bg-slate-50 flex justify-end gap-3">
-              <GlassButton variant="secondary" onClick={closeApprovalModal}>Cancel</GlassButton>
-              <GlassButton disabled={!bankSlipFile} onClick={approveClaim}>
-                Confirm Approval
-              </GlassButton>
-            </div>
-          </GlassCard>
-        </div>
-      )}
-      {isPvOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="absolute inset-0" onClick={closePvModal} />
-          <GlassCard className="w-full max-w-xl p-0 overflow-hidden border border-slate-200 bg-white/95 relative">
-            <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50/70">
-              <h3 className="text-lg font-bold text-slate-800">Upload PV</h3>
-              <p className="text-sm text-slate-500">Upload the payment voucher to complete the claim flow.</p>
+              <h3 className="text-lg font-bold text-slate-800">Reject Claim</h3>
+              <p className="text-sm text-slate-500">Provide a reason before rejecting this member claim.</p>
             </div>
             <div className="p-6 space-y-4">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-700">
-                  PV File <span className="text-red-500">*</span>
+                  Rejection Reason <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="file"
-                  accept=".pdf,image/*"
-                  className="h-12 w-full glass-input px-3 py-2 bg-white text-sm text-slate-600 file:mr-3 file:h-8 file:rounded-md file:border file:border-slate-200 file:bg-slate-100 file:px-3 file:py-1 file:text-[10px] file:font-semibold file:uppercase file:tracking-wide file:text-slate-600 hover:file:bg-slate-200/80"
-                  onChange={handlePvSelection}
+                <textarea
+                  className="w-full glass-input p-3 text-sm h-32 resize-none"
+                  placeholder="Explain why this claim cannot proceed."
+                  value={rejectionReason}
+                  onChange={(event) => setRejectionReason(event.target.value)}
                 />
-                {(pvFile?.name || claim?.pvFileName) && (
-                  <p className="text-[11px] text-slate-500">{pvFile?.name || claim?.pvFileName}</p>
-                )}
               </div>
-              {pvError && (
+              {flowError && (
                 <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                  {pvError}
+                  {flowError}
                 </p>
               )}
             </div>
             <div className="px-6 py-4 border-t border-slate-200/70 bg-slate-50 flex justify-end gap-3">
-              <GlassButton variant="secondary" onClick={closePvModal}>
+              <GlassButton variant="secondary" onClick={closeRejectModal}>
                 Cancel
               </GlassButton>
-              <GlassButton disabled={!pvFile} onClick={confirmPvUpload}>
-                Confirm Upload
+              <GlassButton disabled={!rejectionReason.trim() || !canOperateClaimsPage} onClick={rejectClaim}>
+                Confirm Rejection
               </GlassButton>
             </div>
           </GlassCard>

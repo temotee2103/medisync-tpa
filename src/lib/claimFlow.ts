@@ -1,25 +1,31 @@
+import { normalizeUnifiedClaimStatus, type UnifiedClaimStatus } from "@/lib/unifiedClaimLifecycle";
+
 export const CLAIM_STATUS = {
-  IN_REVIEW: "In review",
-  IN_PROGRESS: "In progress",
-  APPROVED: "Approved",
-  LISTED: "Listed",
-  PAID: "Paid",
-  PV_UPLOADED: "PV Uploaded",
-  REJECTED: "Rejected",
+  SUBMITTED: "submitted",
+  REQUEST_ADDITIONAL_INFORMATION: "request_additional_information",
+  REJECTED: "rejected",
+  IN_PROCESS: "in_process",
+  APPROVED: "approved",
+  // Deprecated aliases kept temporarily so existing pages can compile during the rollout.
+  IN_REVIEW: "submitted",
+  IN_PROGRESS: "in_process",
+  LISTED: "approved",
+  PAID: "approved",
+  PV_UPLOADED: "approved",
 } as const;
 
-export type ClaimStatus = (typeof CLAIM_STATUS)[keyof typeof CLAIM_STATUS];
+export type ClaimStatus = UnifiedClaimStatus;
 
-export const canTransition = (from: ClaimStatus, to: ClaimStatus) => {
-  const allowed: Record<ClaimStatus, ClaimStatus[]> = {
-    "In review": ["In progress", "Approved", "Rejected"],
-    "In progress": ["Approved", "Rejected"],
-    "Approved": ["Listed"],
-    "Listed": ["Paid"],
-    "Paid": ["PV Uploaded"],
-    "PV Uploaded": [],
-    "Rejected": [],
-  };
-  return (allowed[from] || []).includes(to);
+const ALLOWED_TRANSITIONS: Record<UnifiedClaimStatus, UnifiedClaimStatus[]> = {
+  submitted: ["request_additional_information", "rejected", "in_process"],
+  request_additional_information: ["submitted"],
+  rejected: [],
+  in_process: ["approved"],
+  approved: [],
 };
 
+export const canTransition = (from: string, to: string) => {
+  const normalizedFrom = normalizeUnifiedClaimStatus(from);
+  const normalizedTo = normalizeUnifiedClaimStatus(to);
+  return ALLOWED_TRANSITIONS[normalizedFrom].includes(normalizedTo);
+};

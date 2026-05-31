@@ -13,3 +13,6 @@ export const getSupabaseAnonKey = () =>
 
 export const getSupabaseServiceRoleKey = () =>
   requireEnv(process.env.SUPABASE_SERVICE_ROLE_KEY, "SUPABASE_SERVICE_ROLE_KEY");
+
+export const getQrTokenSecret = () =>
+  requireEnv(process.env.QR_TOKEN_SECRET, "QR_TOKEN_SECRET");

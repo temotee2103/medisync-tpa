@@ -1060,7 +1060,7 @@ export default function ClaimsListPage() {
                   const token = `${requestingClaim.id}-${Date.now()}`;
                   addAdminClaimRequest({ token, id: requestingClaim.id, note: requestNote.trim(), createdAt: new Date().toISOString() });
                   if (!requestingClaimTarget) return;
-                  await saveClaimStatus(requestingClaimTarget, CLAIM_STATUS.REQUEST_ADDITIONAL_INFORMATION, {
+                  await saveClaimStatus(requestingClaimTarget, CLAIM_STATUS.MORE_INFORMATION, {
                     note: requestNote.trim(),
                   });
                   setLastRequestToken(token);

@@ -2,6 +2,8 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { GlassInput } from "@/components/ui/GlassInput";
+import { GlassField } from "@/components/ui/GlassField";
 import { MobileDetailModal } from "@/components/ui/MobileDetailModal";
 import { 
   ArrowLeft, 
@@ -11,7 +13,8 @@ import {
   UserCheck, 
   AlertCircle,
   Calendar,
-  CheckCircle2
+  CheckCircle2,
+  QrCode
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
@@ -74,6 +77,7 @@ import { upsertPanelVisitTransaction } from "@/lib/panelVisitStore";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { fetchDiagnosisOptions } from "@/lib/diagnosisOptions";
 import { getProviderSubmissionGuard } from "@/lib/providerComplianceGuard";
+import { QrScanner } from "@/components/ui/QrScanner";
 
 const generateClaimId = () => {
   const stamp = Date.now().toString().slice(-8);
@@ -140,6 +144,8 @@ export default function ProviderInvoicePage() {
     getProviderClaimsServerSnapshot
   );
   const [patientId, setPatientId] = useState("");
+  const [isScanOpen, setIsScanOpen] = useState(false);
+  const [scanError, setScanError] = useState("");
   const [treatmentDate, setTreatmentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [error, setError] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState(generateClaimId());
@@ -1432,15 +1438,17 @@ export default function ProviderInvoicePage() {
                 <UserCheck className="w-4 h-4" />
                 Patient Selection
               </h3>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 z-10" />
-                <input 
-                  type="text" 
-                  placeholder="Enter Member ID / NRIC / Passport No..." 
-                  className="w-full pl-10 pr-4 py-2.5 glass-input outline-none focus:ring-2 focus:ring-sky-500/50"
-                  value={patientId}
-                  onChange={(e) => setPatientId(e.target.value)}
-                />
+              <GlassField label="Member ID / NRIC / Passport No." hint="Scan QR or type member identifier">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 z-10" />
+                  <GlassInput className="pl-10" value={patientId} onChange={(e) => setPatientId(e.target.value)} />
+                </div>
+              </GlassField>
+              <div className="flex justify-end">
+                <GlassButton variant="secondary" className="gap-2" onClick={() => { setScanError(""); setIsScanOpen(true); }}>
+                  <QrCode className="w-4 h-4" />
+                  Scan QR
+                </GlassButton>
               </div>
               {patientId.length > 3 && (
                 <div className={cn(
@@ -1479,68 +1487,56 @@ export default function ProviderInvoicePage() {
                 Billing Details
               </h3>
               
-              {/* Treatment Date with 7-day validation */}
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-500 ml-1">Treatment Date</label>
+              <GlassField label="Treatment Date" error={isTreatmentDateError ? error : undefined}>
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 z-10" />
-                  <input 
-                    type="date" 
-                    className={`w-full pl-10 pr-4 py-2.5 glass-input outline-none focus:ring-2 ${isTreatmentDateError ? 'focus:ring-rose-500/50 border-rose-500' : 'focus:ring-sky-500/50'}`}
+                  <GlassInput
+                    type="date"
+                    className={`pl-10 ${isTreatmentDateError ? 'focus:ring-rose-500/50 border-rose-500' : ''}`}
                     value={treatmentDate}
                     onChange={handleDateChange}
                   />
                 </div>
-                {isTreatmentDateError && (
-                  <p className="text-xs text-rose-500 font-medium ml-1 animate-in slide-in-from-top-1">
-                    {error}
-                  </p>
-                )}
-              </div>
+              </GlassField>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500 ml-1">Claim ID</label>
-                  <input
-                    type="text"
-                    className="w-full glass-input px-4 py-2 bg-slate-100/70"
+                <GlassField label="Claim ID">
+                  <GlassInput
                     value={invoiceNumber}
                     readOnly
+                    className="bg-slate-100/70"
                   />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500 ml-1">Total Amount (RM)</label>
+                </GlassField>
+                <GlassField label="Total Amount (RM)">
                   <div className="relative">
                     <span className="currency-prefix text-xs text-slate-900">RM</span>
-                    <input
+                    <GlassInput
                       type="number"
                       placeholder="0.00"
-                      className="w-full currency-input pl-10 pr-4 py-1.5 glass-input font-bold bg-slate-100/70"
+                      className="currency-input pl-10 pr-4 py-1.5 font-bold bg-slate-100/70"
                       step="0.01"
                       value={totalAmount}
                       readOnly
                     />
                   </div>
-                </div>
+                </GlassField>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500 ml-1">Logged-in User</label>
-                  <input
-                    className="w-full glass-input px-3 py-2 text-sm bg-slate-50"
-                      value={
-                        !isProviderContextResolved
-                          ? "Loading user..."
-                          : currentUser?.fullName
-                            ? `${currentUser.fullName} (${formatProviderRole(currentUserRole)})`
-                            : resolvedUserLabel || "Unknown user"
-                      }
+                <GlassField label="Logged-in User">
+                  <GlassInput
+                    className="px-3 py-2 text-sm bg-slate-50"
+                    value={
+                      !isProviderContextResolved
+                        ? "Loading user..."
+                        : currentUser?.fullName
+                          ? `${currentUser.fullName} (${formatProviderRole(currentUserRole)})`
+                          : resolvedUserLabel || "Unknown user"
+                    }
                     readOnly
                   />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500 ml-1">Attending Doctor</label>
+                </GlassField>
+                <GlassField label="Attending Doctor" error={!isProviderContextLoading && !hasVerifiedDoctors ? "No verified doctor found. Upload APC for doctors and get it approved to enable submission." : undefined}>
                   <select
                     className="w-full glass-select px-3 py-2 text-sm"
                     value={selectedDoctorUserId}
@@ -1559,16 +1555,10 @@ export default function ProviderInvoicePage() {
                       ))
                     )}
                   </select>
-                  {!isProviderContextLoading && !hasVerifiedDoctors ? (
-                    <p className="text-xs text-amber-700 font-medium ml-1">
-                      No verified doctor found. Upload APC for doctors and get it approved to enable submission.
-                    </p>
-                  ) : null}
-                </div>
+                </GlassField>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-500 ml-1">Service Type (required)</label>
+              <GlassField label="Service Type (required)">
                 <select
                   className="w-full glass-select px-4 py-2"
                   value={serviceType}
@@ -1623,12 +1613,11 @@ export default function ProviderInvoicePage() {
                   <option>Optical</option>
                   <option>Others</option>
                 </select>
-              </div>
+              </GlassField>
 
               <div className="space-y-3 p-4 rounded-xl border border-slate-200 bg-white/70">
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Clinical Details</h4>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-500 ml-1">Diagnosis</label>
+                <GlassField label="Diagnosis" className="space-y-2">
                   <div className="flex items-center gap-2">
                     <select
                       className="w-full glass-select px-4 py-2"
@@ -1675,9 +1664,8 @@ export default function ProviderInvoicePage() {
                       ))
                     )}
                   </div>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500 ml-1">Medication Description</label>
+                </GlassField>
+                <GlassField label="Medication Description">
                   <textarea
                     className={cn(
                       "w-full rounded-xl border px-3 py-2.5 text-sm min-h-40 resize-y",
@@ -1690,7 +1678,7 @@ export default function ProviderInvoicePage() {
                     onChange={canEditClinicalFields ? (e) => setMedicationDescription(e.target.value) : undefined}
                     readOnly={!canEditClinicalFields}
                   />
-                </div>
+                </GlassField>
               </div>
               {!canEditClinicalFields && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -1699,12 +1687,10 @@ export default function ProviderInvoicePage() {
               )}
 
               {!canEditClinicalFields && (
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500 ml-1">Draft Total Amount (RM)</label>
-                  <input
+                <GlassField label="Draft Total Amount (RM)" hint="This amount will be used for limit reservation. Final amount will be locked in by the doctor submission.">
+                  <GlassInput
                     type="number"
                     placeholder="0.00"
-                    className="w-full glass-input px-4 py-2.5"
                     step="0.01"
                     min="0"
                     value={adminDraftTotalAmount}
@@ -1713,10 +1699,7 @@ export default function ProviderInvoicePage() {
                       setError("");
                     }}
                   />
-                  <p className="text-[11px] text-slate-500 ml-1">
-                    This amount will be used for limit reservation. Final amount will be locked in by the doctor submission.
-                  </p>
-                </div>
+                </GlassField>
               )}
 
               <div className="space-y-4 p-5 bg-white rounded-2xl border border-slate-200 shadow-sm">
@@ -2015,11 +1998,10 @@ export default function ProviderInvoicePage() {
                       </select>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-medium text-slate-600">MC From</label>
-                        <input
+                      <GlassField label="MC From">
+                        <GlassInput
                           type="date"
-                          className="w-full glass-input px-3 py-2 text-sm bg-white"
+                          className="px-3 py-2 text-sm bg-white"
                           value={mcFrom}
                           onChange={(e) => {
                             setMcFrom(e.target.value);
@@ -2027,12 +2009,11 @@ export default function ProviderInvoicePage() {
                           }}
                           disabled={mcRequired !== "Y"}
                         />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-medium text-slate-600">MC To</label>
-                        <input
+                      </GlassField>
+                      <GlassField label="MC To">
+                        <GlassInput
                           type="date"
-                          className="w-full glass-input px-3 py-2 text-sm bg-white"
+                          className="px-3 py-2 text-sm bg-white"
                           value={mcTo}
                           onChange={(e) => {
                             setMcTo(e.target.value);
@@ -2040,12 +2021,12 @@ export default function ProviderInvoicePage() {
                           }}
                           disabled={mcRequired !== "Y"}
                         />
-                      </div>
+                      </GlassField>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-[140px_1fr] items-center gap-3">
                       <label className="text-xs font-semibold text-slate-700">MC Days</label>
-                      <input
-                        className="w-full glass-input px-3 py-2 text-sm bg-slate-50"
+                      <GlassInput
+                        className="px-3 py-2 text-sm bg-slate-50"
                         value={String(mcDays)}
                         readOnly
                       />
@@ -2386,6 +2367,52 @@ export default function ProviderInvoicePage() {
           </div>
         </div>
       </MobileDetailModal>
+      {isScanOpen && (
+        <div className="fixed inset-0 z-[80] bg-slate-900/45 backdrop-blur-sm flex items-center justify-center p-4">
+          <GlassCard className="w-full max-w-md p-0 overflow-hidden !bg-white border border-slate-200 backdrop-blur-none shadow-2xl">
+            <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50/70">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-slate-800">Scan Member QR</h3>
+                <button
+                  className="text-sm text-slate-500 hover:text-slate-700"
+                  onClick={() => setIsScanOpen(false)}
+                  type="button"
+                >
+                  Close
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">Point camera at member check-in QR.</p>
+            </div>
+            <div className="p-4 space-y-3">
+              {scanError ? (
+                <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{scanError}</p>
+              ) : null}
+              <QrScanner
+                onResult={async (text) => {
+                  setScanError("");
+                  try {
+                    const res = await fetch("/api/provider/qr/resolve", {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ token: text }),
+                    });
+                    const json = await res.json().catch(() => null);
+                    if (!res.ok || !json?.ok) {
+                      setScanError(json?.error || "Scan failed.");
+                      return;
+                    }
+                    setPatientId(json.staffId || json.nricPassport || "");
+                    setIsScanOpen(false);
+                  } catch {
+                    setScanError("Failed to resolve QR token.");
+                  }
+                }}
+                onError={(msg) => setScanError(msg)}
+              />
+            </div>
+          </GlassCard>
+        </div>
+      )}
     </div>
   );
 }

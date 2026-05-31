@@ -18,6 +18,7 @@ type LoginPayload = {
     access_token?: string;
     refresh_token?: string;
   } | null;
+  must_change_password?: boolean;
 };
 
 export default function AdminLoginPage() {
@@ -77,6 +78,10 @@ export default function AdminLoginPage() {
         if (sessionError) throw sessionError;
       }
 
+      if (payload.must_change_password) {
+        router.push("/admin/change-password");
+        return;
+      }
       router.push("/admin/dashboard");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "";

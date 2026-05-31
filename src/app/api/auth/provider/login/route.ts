@@ -78,6 +78,7 @@ export async function POST(request: Request) {
             refresh_token: data.session.refresh_token,
           }
         : null,
+      must_change_password: Boolean((data.user?.user_metadata as Record<string,unknown>)?.must_change_password),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Login failed.";

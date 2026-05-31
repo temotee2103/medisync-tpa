@@ -275,6 +275,10 @@ function UserManagementPageContent() {
   const [adminFilter, setAdminFilter] = useState<"all" | "active" | "inactive">("all");
   const [actionFeedback, setActionFeedback] = useState<ActionFeedback | null>(null);
   const [pendingAdminDeletion, setPendingAdminDeletion] = useState<AdminDirectoryEntry | null>(null);
+  const [pendingPasswordReset, setPendingPasswordReset] = useState<AdminDirectoryEntry | null>(null);
+  const [pendingMemberPasswordReset, setPendingMemberPasswordReset] = useState<{ type: "corporate"; member: MemberDirectoryEntry } | { type: "vendor"; member: VendorMemberDirectoryEntry } | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
   const [newAdminForm, setNewAdminForm] = useState({
     adminId: "",
     fullName: "",
@@ -931,26 +935,24 @@ function UserManagementPageContent() {
     );
   };
 
-  const resetCorporateMemberPassword = async (member: MemberDirectoryEntry) => {
-    const tempPassword = `Temp${Math.floor(100000 + Math.random() * 900000)}`;
+  const resetCorporateMemberPassword = async (member: MemberDirectoryEntry, newPassword: string) => {
     try {
       const response = await fetch(withBasePath("/api/admin/members/reset-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId: member.companyId, staffId: member.staffId, newPassword: tempPassword }),
+        body: JSON.stringify({ companyId: member.companyId, staffId: member.staffId, newPassword }),
       });
       const payload = (await response.json()) as { ok?: boolean; error?: string };
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Unable to reset member password.");
       }
-      showActionFeedback(`Temporary password for ${member.staffId}: ${tempPassword}`);
+      showActionFeedback(`Password for ${member.staffId} has been reset. Please inform the user of their new password.`);
     } catch (error) {
       showActionFeedback(getErrorMessage(error, "Unable to reset member password."), "error");
     }
   };
 
-  const resetVendorMemberPassword = async (member: VendorMemberDirectoryEntry) => {
-    const tempPassword = `Temp${Math.floor(100000 + Math.random() * 900000)}`;
+  const resetVendorMemberPassword = async (member: VendorMemberDirectoryEntry, newPassword: string) => {
     try {
       const response = await fetch(withBasePath("/api/admin/providers/create-user"), {
         method: "POST",
@@ -960,7 +962,7 @@ function UserManagementPageContent() {
           memberCode: member.memberId,
           fullName: normalizeName(member.fullName),
           email: member.email,
-          password: tempPassword,
+          password: newPassword,
           phone: normalizePhone(member.phone) || undefined,
           role: normalizeProviderUserRole(member.role) || member.role || "provider_user",
           status: member.status === "Disabled" ? "disabled" : "active",
@@ -970,33 +972,83 @@ function UserManagementPageContent() {
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Unable to reset vendor member password.");
       }
-      showActionFeedback(`Temporary password for ${member.memberId}: ${tempPassword}`);
+      showActionFeedback(`Password for ${member.memberId} has been reset. Please inform the user of their new password.`);
     } catch (error) {
       showActionFeedback(getErrorMessage(error, "Unable to reset vendor member password."), "error");
     }
   };
 
-  const resetAdminMemberPassword = async (member: AdminDirectoryEntry) => {
-    if (!canOperateUsersPage) return;
+  const resetAdminMemberPassword = async (member: AdminDirectoryEntry, newPassword: string) => {
+    if (!canOperateUsersPage) {
+      showActionFeedback("You do not have permission to reset passwords.", "error");
+      return;
+    }
     if (!member.profileId) {
       showActionFeedback("Admin profile is missing.", "error");
       return;
     }
-    const tempPassword = `Temp${Math.floor(100000 + Math.random() * 900000)}`;
     try {
       const response = await fetch(withBasePath("/api/admin/admin-users/reset-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId: member.profileId, newPassword: tempPassword }),
+        body: JSON.stringify({ profileId: member.profileId, newPassword }),
       });
       const payload = (await response.json()) as { ok?: boolean; error?: string };
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Unable to reset admin password.");
       }
-      showActionFeedback(`Temporary password for ${member.adminId}: ${tempPassword}`);
+      showActionFeedback(`Password for ${member.adminId} has been reset. Please inform the user of their new password.`);
     } catch (error) {
       showActionFeedback(getErrorMessage(error, "Unable to reset admin password."), "error");
     }
+  };
+
+  const confirmResetPassword = async () => {
+    if (!pendingPasswordReset) return;
+    if (!resetPasswordValue.trim()) {
+      showActionFeedback("Enter a new password.", "error");
+      return;
+    }
+    if (resetPasswordValue !== resetPasswordConfirm) {
+      showActionFeedback("Passwords do not match.", "error");
+      return;
+    }
+    await resetAdminMemberPassword(pendingPasswordReset, resetPasswordValue);
+    setPendingPasswordReset(null);
+    setResetPasswordValue("");
+    setResetPasswordConfirm("");
+  };
+
+  const openPasswordResetModal = (member: AdminDirectoryEntry) => {
+    setPendingPasswordReset(member);
+    setResetPasswordValue("");
+    setResetPasswordConfirm("");
+  };
+
+  const confirmMemberPasswordReset = async () => {
+    if (!pendingMemberPasswordReset) return;
+    if (!resetPasswordValue.trim()) {
+      showActionFeedback("Enter a new password.", "error");
+      return;
+    }
+    if (resetPasswordValue !== resetPasswordConfirm) {
+      showActionFeedback("Passwords do not match.", "error");
+      return;
+    }
+    if (pendingMemberPasswordReset.type === "corporate") {
+      await resetCorporateMemberPassword(pendingMemberPasswordReset.member, resetPasswordValue);
+    } else {
+      await resetVendorMemberPassword(pendingMemberPasswordReset.member, resetPasswordValue);
+    }
+    setPendingMemberPasswordReset(null);
+    setResetPasswordValue("");
+    setResetPasswordConfirm("");
+  };
+
+  const openMemberPasswordResetModal = (member: { type: "corporate"; member: MemberDirectoryEntry } | { type: "vendor"; member: VendorMemberDirectoryEntry }) => {
+    setPendingMemberPasswordReset(member);
+    setResetPasswordValue("");
+    setResetPasswordConfirm("");
   };
 
   const deleteAdminMember = async (member: AdminDirectoryEntry) => {
@@ -1126,7 +1178,7 @@ function UserManagementPageContent() {
         variant="ghost"
         className="h-9 w-9 p-0 flex items-center justify-center text-indigo-600 hover:text-indigo-700"
         title="Reset Password"
-        onClick={() => resetCorporateMemberPassword(member)}
+        onClick={() => openMemberPasswordResetModal({ type: "corporate", member })}
       >
         <KeyRound className="w-4 h-4" />
       </GlassButton>
@@ -1168,7 +1220,7 @@ function UserManagementPageContent() {
         variant="ghost"
         className="h-9 w-9 p-0 flex items-center justify-center text-indigo-600 hover:text-indigo-700"
         title="Reset Password"
-        onClick={() => resetVendorMemberPassword(member)}
+        onClick={() => openMemberPasswordResetModal({ type: "vendor", member })}
       >
         <KeyRound className="w-4 h-4" />
       </GlassButton>
@@ -1188,14 +1240,16 @@ function UserManagementPageContent() {
     if (isUsersPageReadOnly) return null;
     return (
     <>
+      {canOperateUsersPage && (
       <GlassButton
         variant="ghost"
         className="h-9 w-9 p-0 flex items-center justify-center text-indigo-600 hover:text-indigo-700"
         title="Reset Password"
-        onClick={() => void resetAdminMemberPassword(member)}
+        onClick={() => openPasswordResetModal(member)}
       >
         <UserCog className="w-4 h-4" />
       </GlassButton>
+      )}
       {canDeleteUsersResource && (
         <GlassButton
           variant="ghost"
@@ -1803,6 +1857,7 @@ function UserManagementPageContent() {
               <thead>
                 <tr className="bg-white/40 border-b border-white/50">
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Admin</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Username</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Role</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Last Login</th>
@@ -1822,6 +1877,9 @@ function UserManagementPageContent() {
                           <div className="text-xs text-slate-500">{user.adminId}</div>
                         </div>
                       </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-sm font-mono text-slate-700">{user.adminId}</span>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
@@ -1844,12 +1902,12 @@ function UserManagementPageContent() {
                 ))}
                 {isUsersDataLoading && (
                   <tr>
-                    <td colSpan={5} className="px-6 py-6 text-center text-sm text-slate-400">Loading admin users...</td>
+                    <td colSpan={6} className="px-6 py-6 text-center text-sm text-slate-400">Loading admin users...</td>
                   </tr>
                 )}
                 {!isUsersDataLoading && filteredAdminMembersByStatus.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-6 py-6 text-center text-sm text-slate-400">No admin users yet.</td>
+                    <td colSpan={6} className="px-6 py-6 text-center text-sm text-slate-400">No admin users yet.</td>
                   </tr>
                 )}
               </tbody>
@@ -3165,6 +3223,109 @@ function UserManagementPageContent() {
               <GlassButton className="px-8 shadow-lg shadow-sky-500/20 bg-sky-600 hover:bg-sky-700 text-white border-none" onClick={saveNewAdminAccount}>Create Account</GlassButton>
             </div>
 
+          </GlassCard>
+        </div>
+      )}
+
+      {pendingPasswordReset && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-sm">
+          <div className="absolute inset-0" onClick={() => { setPendingPasswordReset(null); setResetPasswordValue(""); setResetPasswordConfirm(""); }} />
+          <GlassCard className="relative w-full max-w-md border-white/80 bg-white/95 shadow-2xl">
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-slate-800">Reset Password</h2>
+              <p className="text-sm text-slate-600">
+                Set a new password for <span className="font-semibold text-slate-800">{pendingPasswordReset.adminId}</span>.
+              </p>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-500 ml-1">New Password</label>
+                <input
+                  type="password"
+                  className="w-full glass-input px-4 py-2.5 outline-none focus:ring-2 focus:ring-sky-500/50"
+                  value={resetPasswordValue}
+                  onChange={(e) => setResetPasswordValue(e.target.value)}
+                  placeholder="Enter new password"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-500 ml-1">Confirm Password</label>
+                <input
+                  type="password"
+                  className="w-full glass-input px-4 py-2.5 outline-none focus:ring-2 focus:ring-sky-500/50"
+                  value={resetPasswordConfirm}
+                  onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                  placeholder="Re-enter new password"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <GlassButton
+                variant="secondary"
+                onClick={() => { setPendingPasswordReset(null); setResetPasswordValue(""); setResetPasswordConfirm(""); }}
+                className="px-5 hover:bg-slate-200 border-slate-300"
+              >
+                Cancel
+              </GlassButton>
+              <GlassButton
+                onClick={() => void confirmResetPassword()}
+                className="px-5 bg-indigo-600 hover:bg-indigo-700 text-white border-transparent shadow-none"
+              >
+                Reset Password
+              </GlassButton>
+            </div>
+          </GlassCard>
+        </div>
+      )}
+
+      {pendingMemberPasswordReset && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-sm">
+          <div className="absolute inset-0" onClick={() => { setPendingMemberPasswordReset(null); setResetPasswordValue(""); setResetPasswordConfirm(""); }} />
+          <GlassCard className="relative w-full max-w-md border-white/80 bg-white/95 shadow-2xl">
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-slate-800">Reset Password</h2>
+              <p className="text-sm text-slate-600">
+                Set a new password for{" "}
+                <span className="font-semibold text-slate-800">
+                  {pendingMemberPasswordReset.type === "corporate"
+                    ? pendingMemberPasswordReset.member.staffId
+                    : pendingMemberPasswordReset.member.memberId}
+                </span>.
+              </p>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-500 ml-1">New Password</label>
+                <input
+                  type="password"
+                  className="w-full glass-input px-4 py-2.5 outline-none focus:ring-2 focus:ring-sky-500/50"
+                  value={resetPasswordValue}
+                  onChange={(e) => setResetPasswordValue(e.target.value)}
+                  placeholder="Enter new password"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-500 ml-1">Confirm Password</label>
+                <input
+                  type="password"
+                  className="w-full glass-input px-4 py-2.5 outline-none focus:ring-2 focus:ring-sky-500/50"
+                  value={resetPasswordConfirm}
+                  onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                  placeholder="Re-enter new password"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <GlassButton
+                variant="secondary"
+                onClick={() => { setPendingMemberPasswordReset(null); setResetPasswordValue(""); setResetPasswordConfirm(""); }}
+                className="px-5 hover:bg-slate-200 border-slate-300"
+              >
+                Cancel
+              </GlassButton>
+              <GlassButton
+                onClick={() => void confirmMemberPasswordReset()}
+                className="px-5 bg-indigo-600 hover:bg-indigo-700 text-white border-transparent shadow-none"
+              >
+                Reset Password
+              </GlassButton>
+            </div>
           </GlassCard>
         </div>
       )}

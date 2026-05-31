@@ -52,6 +52,46 @@ const formatProviderRole = (role?: string | null) => {
   return normalized === "doctor" ? "Doctor" : "Provider Admin";
 };
 
+const downloadComplianceDocument = async (
+  fileName: string,
+  fileDataUrl?: string,
+  storagePath?: string
+) => {
+  if (fileDataUrl) {
+    const anchor = document.createElement("a");
+    anchor.href = fileDataUrl;
+    anchor.download = fileName;
+    anchor.click();
+    return;
+  }
+
+  if (storagePath) {
+    if (storagePath.startsWith("http://") || storagePath.startsWith("https://")) {
+      window.open(storagePath, "_blank");
+      return;
+    }
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const parts = storagePath.split("/");
+      if (parts.length >= 2) {
+        const bucket = parts[0];
+        const path = parts.slice(1).join("/");
+        const { data, error } = await supabase.storage.from(bucket).download(path);
+        if (error) throw error;
+        const url = URL.createObjectURL(data);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      // silently fail
+    }
+  }
+};
+
 export default function CompliancePage() {
   const [isProviderContextResolved, setIsProviderContextResolved] = useState(false);
   const [clinicUpload, setClinicUpload] = useState<{
@@ -65,6 +105,8 @@ export default function CompliancePage() {
     fileMimeType: "",
     expiryDate: "",
   });
+  const [clinicUploadError, setClinicUploadError] = useState("");
+  const [apcUploadError, setApcUploadError] = useState("");
   const [apcUpload, setApcUpload] = useState<{
     providerUserId: string;
     fileName: string;
@@ -320,7 +362,16 @@ export default function CompliancePage() {
                     : "Awaiting submission"}
                 </p>
               </div>
-              <GlassButton size="sm" variant="secondary" disabled={!provider.compliance?.clinicLicense?.fileName}>
+              <GlassButton
+                size="sm"
+                variant="secondary"
+                disabled={!provider.compliance?.clinicLicense?.fileName}
+                onClick={() => {
+                  const doc = provider.compliance?.clinicLicense;
+                  if (!doc?.fileName) return;
+                  downloadComplianceDocument(doc.fileName, doc.fileDataUrl, doc.storagePath);
+                }}
+              >
                 Open
               </GlassButton>
             </div>
@@ -350,6 +401,7 @@ export default function CompliancePage() {
               <input
                 type="file"
                 className="hidden"
+                accept=".pdf,.jpg,.jpeg,image/jpeg,image/png,application/pdf"
                 disabled={!canManageClinicLicense}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -383,21 +435,29 @@ export default function CompliancePage() {
             <div className="mt-3">
               <GlassButton
                 disabled={!canManageClinicLicense}
-                onClick={() => {
+                onClick={async () => {
                   if (!session?.vendorId || !clinicUpload.fileName || !clinicUpload.expiryDate) return;
-                  submitVendorClinicLicense(session.vendorId, {
-                    fileName: clinicUpload.fileName,
-                    fileDataUrl: clinicUpload.fileDataUrl,
-                    fileMimeType: clinicUpload.fileMimeType,
-                    expiryDate: clinicUpload.expiryDate,
-                    submittedBy: "vendor",
-                  });
-                  setClinicUpload({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
+                  try {
+                    await submitVendorClinicLicense(session.vendorId, {
+                      fileName: clinicUpload.fileName,
+                      fileDataUrl: clinicUpload.fileDataUrl,
+                      fileMimeType: clinicUpload.fileMimeType,
+                      expiryDate: clinicUpload.expiryDate,
+                      submittedBy: "vendor",
+                    });
+                    setClinicUpload({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
+                    setClinicUploadError("");
+                  } catch {
+                    setClinicUploadError("Upload failed. Please try again.");
+                  }
                 }}
               >
                 Send Review
               </GlassButton>
             </div>
+            {clinicUploadError ? (
+              <p className="mt-3 text-xs text-red-600">{clinicUploadError}</p>
+            ) : null}
             {!canManageClinicLicense ? (
               <p className="mt-3 text-xs text-slate-500">
                 Switch to a provider admin login if you need to submit or replace the clinic license.
@@ -430,9 +490,22 @@ export default function CompliancePage() {
                       <p className="text-xs text-slate-500">{doc.fileName || "No file"} • {doc.expiryDate || "No expiry"}</p>
                     </div>
                   </div>
-                  <span className={`px-2 py-1 text-[10px] font-bold rounded-full ${statusPill(doc.status)}`}>
-                    {(doc.status || "missing").toUpperCase()}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 text-[10px] font-bold rounded-full ${statusPill(doc.status)}`}>
+                      {(doc.status || "missing").toUpperCase()}
+                    </span>
+                    <GlassButton
+                      size="sm"
+                      variant="secondary"
+                      disabled={!doc.fileName}
+                      onClick={() => {
+                        if (!doc.fileName) return;
+                        downloadComplianceDocument(doc.fileName, doc.fileDataUrl, doc.storagePath);
+                      }}
+                    >
+                      Open
+                    </GlassButton>
+                  </div>
                 </div>
               ))
             ) : (
@@ -481,6 +554,7 @@ export default function CompliancePage() {
               <input
                 type="file"
                 className="hidden"
+                accept=".pdf,.jpg,.jpeg,image/jpeg,image/png,application/pdf"
                 disabled={!canUploadApc}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -499,28 +573,36 @@ export default function CompliancePage() {
             <div className="mt-3">
               <GlassButton
                 disabled={!canUploadApc}
-                onClick={() => {
+                onClick={async () => {
                   if (!session?.vendorId || !selectedApcDoctorId || !apcUpload.fileName || !apcUpload.expiryDate) return;
-                  submitVendorDoctorApc(session.vendorId, {
-                    providerUserId: selectedApcDoctorId,
-                    fileName: apcUpload.fileName,
-                    fileDataUrl: apcUpload.fileDataUrl,
-                    fileMimeType: apcUpload.fileMimeType,
-                    expiryDate: apcUpload.expiryDate,
-                    submittedBy: "vendor",
-                  });
-                  setApcUpload({
-                    providerUserId: "",
-                    fileName: "",
-                    fileDataUrl: "",
-                    fileMimeType: "",
-                    expiryDate: "",
-                  });
+                  try {
+                    await submitVendorDoctorApc(session.vendorId, {
+                      providerUserId: selectedApcDoctorId,
+                      fileName: apcUpload.fileName,
+                      fileDataUrl: apcUpload.fileDataUrl,
+                      fileMimeType: apcUpload.fileMimeType,
+                      expiryDate: apcUpload.expiryDate,
+                      submittedBy: "vendor",
+                    });
+                    setApcUpload({
+                      providerUserId: "",
+                      fileName: "",
+                      fileDataUrl: "",
+                      fileMimeType: "",
+                      expiryDate: "",
+                    });
+                    setApcUploadError("");
+                  } catch {
+                    setApcUploadError("Upload failed. Please try again.");
+                  }
                 }}
               >
                 Send APC
               </GlassButton>
             </div>
+            {apcUploadError ? (
+              <p className="mt-3 text-xs text-red-600">{apcUploadError}</p>
+            ) : null}
             {currentUserRole === "doctor" ? (
               <p className="mt-3 text-xs text-slate-500">
                 Doctor login is limited to your own APC record.

@@ -2,7 +2,9 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
-import { 
+import { GlassInput } from "@/components/ui/GlassInput";
+import { GlassField } from "@/components/ui/GlassField";
+import {
   Search, 
   CheckCircle2, 
   XCircle, 
@@ -28,6 +30,7 @@ import {
   buildEligibilityResult,
   findMemberByPayload,
 } from "@/lib/providerVerification";
+import { QrScanner } from "@/components/ui/QrScanner";
 
 export default function MemberVerificationPage() {
   const [memberId, setMemberId] = useState("");
@@ -144,19 +147,17 @@ export default function MemberVerificationPage() {
                     {lookupFeedback}
                   </div>
                 )}
-                <div className="w-full space-y-2">
-                  <label className="text-sm font-bold text-slate-700 ml-1">Staff ID / NRIC / Passport No.</label>
+                <GlassField label="Staff ID / NRIC / Passport No.">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 z-10" />
-                    <input 
-                      type="text" 
-                      placeholder="Enter Staff ID / NRIC / Passport (e.g., MEM-8823-01)" 
-                      className="w-full pl-10 pr-4 py-3 glass-input outline-none focus:ring-2 focus:ring-sky-500/50 text-lg"
+                    <GlassInput
+                      placeholder="Enter Staff ID / NRIC / Passport (e.g., MEM-8823-01)"
+                      className="text-lg"
                       value={memberId}
                       onChange={(e) => setMemberId(e.target.value)}
                     />
                   </div>
-                </div>
+                </GlassField>
                 <GlassButton type="submit" className="w-full py-3 h-[50px] gap-2 justify-center" disabled={isSearching}>
                   {isSearching ? "Verifying..." : "Verify Coverage"}
                 </GlassButton>
@@ -169,20 +170,32 @@ export default function MemberVerificationPage() {
                     {lookupFeedback}
                   </div>
                 )}
-                <div className="w-full max-w-[16rem] aspect-square bg-slate-200 rounded-xl flex items-center justify-center relative overflow-hidden group cursor-pointer" onClick={() => {
-                  const demoPayload = memberId.trim();
-                  setMemberId(demoPayload);
-                  void runLookup(demoPayload);
-                }}>
-                  <QrCode className="w-16 h-16 text-slate-400" />
-                  <div className="absolute inset-0 bg-black/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <p className="text-white font-bold bg-black/50 px-4 py-2 rounded-full backdrop-blur-sm">Click to Simulate Scan</p>
-                  </div>
-                  {isSearching && (
-                    <div className="absolute inset-0 bg-sky-500/20 flex items-center justify-center">
-                      <div className="w-full h-1 bg-sky-500 shadow-[0_0_20px_rgba(14,165,233,0.8)] animate-[scan_2s_ease-in-out_infinite]" />
-                    </div>
-                  )}
+                <div className="w-full max-w-[16rem]">
+                  <QrScanner
+                    onResult={async (text) => {
+                      setIsSearching(true);
+                      setError("");
+                      try {
+                        const res = await fetch("/api/provider/qr/resolve", {
+                          method: "POST",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({ token: text }),
+                        });
+                        const json = await res.json().catch(() => null);
+                        if (!res.ok || !json?.ok) {
+                          setError(json?.error || "Scan failed.");
+                          setIsSearching(false);
+                          return;
+                        }
+                        setSearchPayload(json.staffId || json.nricPassport || "");
+                        setHasSearched(true);
+                      } catch {
+                        setError("Failed to resolve QR token.");
+                      }
+                      setIsSearching(false);
+                    }}
+                    onError={(msg) => setError(msg)}
+                  />
                 </div>
                 <p className="mt-4 text-sm font-bold text-slate-600">Point camera at Member Digital Card QR</p>
               </div>

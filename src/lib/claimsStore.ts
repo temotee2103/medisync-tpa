@@ -196,14 +196,6 @@ const toNumber = (value: unknown) => {
   return 0;
 };
 
-const getRequestedStatusKey = (status?: string) =>
-  String(status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-
-const isLegacyApprovedAlias = (status?: string) => {
-  const key = getRequestedStatusKey(status);
-  return key === "listed" || key === "paid" || key === "pv_uploaded";
-};
-
 const normalizeScopeValue = (value?: string | null) => String(value || "").trim();
 
 const adminClaimMatchesMemberScope = (claim: AdminClaimRecord, scope: MemberClaimScope) => {
@@ -516,8 +508,6 @@ export const transitionClaimStatus = async (claimId: string, nextStatus: string,
 
   const fromStatus = normalizeUnifiedClaimStatus(normalizedRow.status || undefined) as ClaimStatus;
   const toStatus = normalizeUnifiedClaimStatus(nextStatus) as ClaimStatus;
-  const requestedStatusKey = getRequestedStatusKey(nextStatus);
-  const legacyApprovedAlias = isLegacyApprovedAlias(nextStatus);
   const sameLifecycleStatus = fromStatus === toStatus;
   const hasMetadataUpdate =
     Boolean(options?.rejectionReason?.trim()) ||
@@ -539,7 +529,7 @@ export const transitionClaimStatus = async (claimId: string, nextStatus: string,
   const bankSlipDataUrl = options?.bankSlipDataUrl || (existingDetails.bankSlipDataUrl as string | undefined);
   const bankSlipUploadedAt = options?.bankSlipUploadedAt || (existingDetails.bankSlipUploadedAt as string | undefined);
 
-  if (toStatus === CLAIM_STATUS.APPROVED && !legacyApprovedAlias && (!bankSlipFileName || !bankSlipDataUrl)) {
+  if (toStatus === CLAIM_STATUS.APPROVED && (!bankSlipFileName || !bankSlipDataUrl)) {
     throw new Error("Bank-in slip is required before approving a claim.");
   }
 
@@ -548,14 +538,6 @@ export const transitionClaimStatus = async (claimId: string, nextStatus: string,
       category: String(normalizedRow.category_code || normalizedRow.service_type || normalizedRow.rate_card_category || "GP"),
       amount: Number(normalizedRow.amount || 0),
     });
-  }
-
-  if (requestedStatusKey === "pv_uploaded") {
-    const pvFileName = options?.pvFileName?.trim() || getChargeString(existingDetails, "pvFileName");
-    const pvDataUrl = options?.pvDataUrl || (existingDetails.pvDataUrl as string | undefined);
-    if (!pvFileName || !pvDataUrl) {
-      throw new Error("PV file is required before marking a claim as PV Uploaded.");
-    }
   }
 
   const actorType = options?.actorType || "admin";

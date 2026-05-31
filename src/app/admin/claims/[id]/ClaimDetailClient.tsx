@@ -115,7 +115,7 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
     !!claim &&
     (memberUnifiedStatus === CLAIM_STATUS.SUBMITTED ||
       memberUnifiedStatus === CLAIM_STATUS.IN_PROCESS ||
-      memberUnifiedStatus === CLAIM_STATUS.REQUEST_ADDITIONAL_INFORMATION);
+      memberUnifiedStatus === CLAIM_STATUS.MORE_INFORMATION);
   const [activeTab, setActiveTab] = useState<"details" | "coverage">("details");
   const [isRequestOpen, setIsRequestOpen] = useState(false);
   const [requestNote, setRequestNote] = useState("");
@@ -402,7 +402,7 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
           <div>
             <h2 className="text-lg font-bold text-slate-800">Admin Review Controls</h2>
             <p className="text-sm text-slate-500">
-              Admin review ends at `in_process`. Use review notes for rejection or more-information requests. Final payment completion happens in Accountant Workspace.
+              Admin review can queue a claim for payout processing. Payout completion and proof upload are handled in the Accountant Workspace.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
@@ -939,10 +939,10 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
                     try {
                       setFlowError("");
                       const fromStatus = claim?.status || "";
-                      await updateAdminClaimStatus(claimId, CLAIM_STATUS.REQUEST_ADDITIONAL_INFORMATION);
+                      await updateAdminClaimStatus(claimId, CLAIM_STATUS.MORE_INFORMATION);
                       notifyProviderStatus(
                         fromStatus,
-                        formatUnifiedClaimStatus(CLAIM_STATUS.REQUEST_ADDITIONAL_INFORMATION),
+                        formatUnifiedClaimStatus(CLAIM_STATUS.MORE_INFORMATION),
                         requestNote
                       );
                       setLastRequestToken(token);

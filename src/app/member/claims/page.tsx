@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { GlassInput } from "@/components/ui/GlassInput";
+import { GlassField } from "@/components/ui/GlassField";
 import { MobileDetailModal } from "@/components/ui/MobileDetailModal";
 import { 
   ArrowLeft, 
@@ -428,8 +430,7 @@ export default function ClaimSubmissionPage() {
             </div>
 
             <div className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700">Claim Category</label>
+              <GlassField label="Claim Category">
                 <select 
                   className="w-full glass-input px-4 py-2 appearance-none"
                   value={selectedCategory}
@@ -448,7 +449,7 @@ export default function ClaimSubmissionPage() {
                   <option value="Glasses">Glasses</option>
                   <option value="Others">Others</option>
                 </select>
-              </div>
+              </GlassField>
 
               {selectedCategory === "Dental" && (
                 <div className="space-y-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
@@ -473,20 +474,18 @@ export default function ClaimSubmissionPage() {
 
               {selectedCategory === "SP" && (
                 <div className="space-y-1 bg-sky-50 p-3 rounded-lg border border-sky-100">
-                  <label className="text-sm font-bold text-sky-800 flex items-center gap-2">
-                    <Stethoscope className="w-4 h-4" />
-                    Referral Letter Date
-                  </label>
-                  <input 
-                    type="date" 
-                    className="w-full glass-input px-4 py-2 bg-white" 
-                    max={new Date().toISOString().split("T")[0]}
-                    value={referralDate}
-                    onChange={(e) => {
-                      setReferralDate(e.target.value);
-                      setError("");
-                    }}
-                  />
+                  <GlassField label="Referral Letter Date">
+                    <input 
+                      type="date" 
+                      className="w-full glass-input px-4 py-2 bg-white" 
+                      max={new Date().toISOString().split("T")[0]}
+                      value={referralDate}
+                      onChange={(e) => {
+                        setReferralDate(e.target.value);
+                        setError("");
+                      }}
+                    />
+                  </GlassField>
                   <p className="text-xs text-sky-600/80">
                     Must be within 14 days prior to the visit date.
                   </p>
@@ -494,8 +493,7 @@ export default function ClaimSubmissionPage() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Date of Visit</label>
+                <GlassField label="Date of Visit" error={error && !error.toLowerCase().includes("upload") ? error : undefined}>
                   <input 
                     type="date" 
                     className="w-full glass-input px-4 py-2" 
@@ -506,18 +504,14 @@ export default function ClaimSubmissionPage() {
                       setError("");
                     }}
                   />
-                  {error && !error.toLowerCase().includes("upload") && <p className="text-xs text-red-500 font-medium">{error}</p>}
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Provider Name</label>
-                  <input
-                    type="text"
+                </GlassField>
+                <GlassField label="Provider Name">
+                  <GlassInput
                     placeholder="Enter provider name (panel or non-panel)"
-                    className="w-full glass-input px-4 py-2"
                     value={providerName}
                     onChange={(e) => setProviderName(e.target.value)}
                   />
-                </div>
+                </GlassField>
               </div>
 
               <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
@@ -535,8 +529,7 @@ export default function ClaimSubmissionPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-slate-700">MC Required?</label>
+                  <GlassField label="MC Required?">
                     <select
                       className="w-full glass-input px-4 py-2 appearance-none bg-white"
                       value={effectiveMcRequired}
@@ -554,25 +547,22 @@ export default function ClaimSubmissionPage() {
                       <option value="N">No</option>
                       <option value="Y">Yes</option>
                     </select>
-                  </div>
+                  </GlassField>
 
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-slate-700">MC Days</label>
-                    <input
-                      type="text"
+                  <GlassField label="MC Days">
+                    <GlassInput
                       readOnly
                       value={effectiveMcRequired === "Y" ? String(mcDays) : "0"}
-                      className="w-full glass-input px-4 py-2 bg-white"
+                      className="bg-white"
                     />
-                  </div>
+                  </GlassField>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-slate-700">MC From</label>
-                    <input
+                  <GlassField label="MC From">
+                    <GlassInput
                       type="date"
-                      className="w-full glass-input px-4 py-2 bg-white"
+                      className="bg-white"
                       value={mcFrom}
                       disabled={!isEmployeeClaim || effectiveMcRequired !== "Y"}
                       onChange={(e) => {
@@ -580,13 +570,12 @@ export default function ClaimSubmissionPage() {
                         setError("");
                       }}
                     />
-                  </div>
+                  </GlassField>
 
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-slate-700">MC To</label>
-                    <input
+                  <GlassField label="MC To">
+                    <GlassInput
                       type="date"
-                      className="w-full glass-input px-4 py-2 bg-white"
+                      className="bg-white"
                       value={mcTo}
                       disabled={!isEmployeeClaim || effectiveMcRequired !== "Y"}
                       onChange={(e) => {
@@ -594,12 +583,11 @@ export default function ClaimSubmissionPage() {
                         setError("");
                       }}
                     />
-                  </div>
+                  </GlassField>
                 </div>
               </div>
               
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700">Diagnosis</label>
+              <GlassField label="Diagnosis">
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <select
                     className="w-full glass-select px-4 py-2"
@@ -636,31 +624,26 @@ export default function ClaimSubmissionPage() {
                 ) : (
                   <p className="text-xs text-amber-600">No diagnosis added yet.</p>
                 )}
-              </div>
+              </GlassField>
 
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700">Amount Submitted</label>
-                <input
+              <GlassField label="Amount Submitted">
+                <GlassInput
                   type="number"
                   placeholder="0.00"
-                  className="w-full glass-input px-4 py-2"
                   step="0.01"
                   min="0"
                   value={amountSubmitted}
                   onChange={(e) => setAmountSubmitted(e.target.value)}
                 />
-              </div>
+              </GlassField>
 
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700">Invoice / Receipt No.</label>
-                <input
-                  type="text"
+              <GlassField label="Invoice / Receipt No.">
+                <GlassInput
                   placeholder="Enter invoice or receipt reference"
-                  className="w-full glass-input px-4 py-2"
                   value={invoiceReceiptNo}
                   onChange={(e) => setInvoiceReceiptNo(e.target.value)}
                 />
-              </div>
+              </GlassField>
             </div>
           </div>
         )}

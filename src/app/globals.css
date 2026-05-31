@@ -57,7 +57,7 @@ body {
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible {
-    @apply outline-none ring-2 ring-sky-400/30 ring-offset-2 ring-offset-slate-50;
+    @apply outline-none ring-2 ring-sky-500/50 ring-offset-2 ring-offset-slate-50;
   }
 }
 
@@ -76,7 +76,7 @@ body {
   }
 
   .glass-input:focus-visible {
-    @apply border-sky-400 bg-white ring-2 ring-sky-400/40 ring-offset-2 ring-offset-slate-50 outline-none;
+    @apply border-sky-400 bg-white ring-2 ring-sky-500/50 ring-offset-2 ring-offset-slate-50 outline-none;
   }
 
   .glass-input[type="file"] {
@@ -120,7 +120,7 @@ body {
   }
 
   .glass-select:focus-visible {
-    @apply border-sky-400 bg-white ring-2 ring-sky-400/40 ring-offset-2 ring-offset-slate-50 outline-none;
+    @apply border-sky-400 bg-white ring-2 ring-sky-500/50 ring-offset-2 ring-offset-slate-50 outline-none;
   }
 
   .currency-input {

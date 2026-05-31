@@ -9,7 +9,9 @@ import {
   Shield, 
   LogOut, 
   Menu,
-  X
+  X,
+  QrCode,
+  Landmark
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import Image from "next/image";
@@ -124,6 +126,8 @@ export default function MemberLayout({
     { name: "Submit Claim", href: "/member/claims", icon: FilePlus },
     { name: "My History", href: "/member/history", icon: History },
     { name: "My Policy", href: "/member/policy", icon: Shield },
+    { name: "Payout Details", href: "/member/payout-profile", icon: Landmark },
+    { name: "Check-in QR", href: "/member/qr", icon: QrCode },
   ];
 
   return (

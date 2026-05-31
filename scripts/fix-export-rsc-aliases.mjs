@@ -3,6 +3,11 @@ import path from "node:path";
 
 const projectRoot = process.cwd();
 const outDir = path.join(projectRoot, "out");
+const allowStaticExport = process.env.ALLOW_STATIC_EXPORT === "true";
+
+if (!allowStaticExport) {
+  process.exit(0);
+}
 
 const ensureAlias = (filePath, sourcePath) => {
   if (!fs.existsSync(sourcePath)) return false;

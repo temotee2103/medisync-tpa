@@ -17,6 +17,7 @@ type LoginPayload = {
     access_token?: string;
     refresh_token?: string;
   } | null;
+  must_change_password?: boolean;
 };
 
 export default function MemberLoginPage() {
@@ -62,6 +63,10 @@ export default function MemberLoginPage() {
         if (sessionError) throw sessionError;
       }
 
+      if (payload.must_change_password) {
+        router.push("/member/change-password");
+        return;
+      }
       router.push("/member/dashboard");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "Login failed.");

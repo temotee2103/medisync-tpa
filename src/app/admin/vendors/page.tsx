@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { downloadText } from "@/lib/download";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import * as providerSession from "@/lib/providerSession";
 import { fetchAdminSession, type AdminRole } from "@/lib/adminSession";
 import { canDeleteAdminResource, isAdminReadOnly } from "@/lib/adminPermissions";
@@ -49,6 +50,7 @@ const {
   saveProviderDirectoryEntry,
   subscribeProviderDirectory,
   subscribeProviderCredentials,
+  getProviderDirectory,
   getProviderDirectorySnapshot,
   getProviderDirectoryServerSnapshot,
   getProviderCredentialsSnapshot,
@@ -112,9 +114,10 @@ const readFileAsDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
-const downloadComplianceDocument = (
+const downloadComplianceDocument = async (
   fileName: string,
   fileDataUrl?: string,
+  storagePath?: string,
   fallbackContent?: string
 ) => {
   if (fileDataUrl) {
@@ -124,6 +127,34 @@ const downloadComplianceDocument = (
     anchor.click();
     return;
   }
+
+  if (storagePath) {
+    if (storagePath.startsWith("http://") || storagePath.startsWith("https://")) {
+      window.open(storagePath, "_blank");
+      return;
+    }
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const parts = storagePath.split("/");
+      if (parts.length >= 2) {
+        const bucket = parts[0];
+        const path = parts.slice(1).join("/");
+        const { data, error } = await supabase.storage.from(bucket).download(path);
+        if (error) throw error;
+        const url = URL.createObjectURL(data);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+    } catch {
+      // fall through to downloadText
+    }
+  }
+
   downloadText(fileName, fallbackContent || "Document preview unavailable.");
 };
 
@@ -171,7 +202,7 @@ export default function VendorManagementPage() {
     getProviderCredentialsSnapshot,
     getProviderCredentialsServerSnapshot
   );
-  const vendors = providerDirectory;
+  const vendors = getProviderDirectory();
   const [selectedVendorId, setSelectedVendorId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [isVendorModalOpen, setIsVendorModalOpen] = useState(false);
@@ -1157,6 +1188,7 @@ export default function VendorManagementPage() {
                           downloadComplianceDocument(
                             clinicDoc?.fileName || "clinic-license.pdf",
                             clinicDoc?.fileDataUrl,
+                            clinicDoc?.storagePath,
                             `Vendor: ${complianceVendor.providerName}\nDocument: Clinic License\nExpiry: ${clinicDoc?.expiryDate || "-"}`
                           )
                         }
@@ -1381,6 +1413,7 @@ export default function VendorManagementPage() {
                                     downloadComplianceDocument(
                                       selectedDoctorApcDoc.fileName || "doctor-apc.pdf",
                                       selectedDoctorApcDoc.fileDataUrl,
+                                      selectedDoctorApcDoc.storagePath,
                                       `Vendor: ${complianceVendor.providerName}\nDoctor: ${selectedDoctor.fullName || selectedDoctor.memberId}\nExpiry: ${selectedDoctorApcDoc.expiryDate || "-"}`
                                     );
                                   }}
@@ -1585,6 +1618,7 @@ export default function VendorManagementPage() {
                                   downloadComplianceDocument(
                                     fileName,
                                     doc?.fileDataUrl,
+                                    doc?.storagePath,
                                     `Vendor: ${complianceVendor.providerName}\nType: ${
                                       item.kind === "clinic_license" ? "Clinic License" : "Doctor APC"
                                     }\nName: ${item.name}\nSubmitted: ${item.submittedAt || "-"}\nExpiry: ${doc?.expiryDate || "-"}`

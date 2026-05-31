@@ -17,6 +17,7 @@ type LoginPayload = {
     access_token?: string;
     refresh_token?: string;
   } | null;
+  must_change_password?: boolean;
 };
 
 export default function ProviderLoginPage() {
@@ -62,6 +63,10 @@ export default function ProviderLoginPage() {
         if (sessionError) throw sessionError;
       }
 
+      if (payload.must_change_password) {
+        router.push("/provider/change-password");
+        return;
+      }
       router.push("/provider/dashboard");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "Login failed.");

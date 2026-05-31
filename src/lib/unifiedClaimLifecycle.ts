@@ -1,6 +1,8 @@
 export const UNIFIED_CLAIM_STATUSES = [
+  "draft",
   "submitted",
   "request_additional_information",
+  "more_information",
   "rejected",
   "in_process",
   "approved",
@@ -9,6 +11,7 @@ export const UNIFIED_CLAIM_STATUSES = [
 export type UnifiedClaimStatus = (typeof UNIFIED_CLAIM_STATUSES)[number];
 
 const NORMALIZED_STATUS_ALIASES: Record<string, UnifiedClaimStatus> = {
+  draft: "draft",
   submitted: "submitted",
   new: "submitted",
   "in review": "submitted",
@@ -17,10 +20,11 @@ const NORMALIZED_STATUS_ALIASES: Record<string, UnifiedClaimStatus> = {
   under_review: "submitted",
   "high priority": "submitted",
   high_priority: "submitted",
-  request_additional_information: "request_additional_information",
-  "request additional information": "request_additional_information",
-  request_for_information: "request_additional_information",
-  requested: "request_additional_information",
+  request_additional_information: "more_information",
+  more_information: "more_information",
+  "request additional information": "more_information",
+  request_for_information: "more_information",
+  requested: "more_information",
   rejected: "rejected",
   in_process: "in_process",
   "in process": "in_process",
@@ -35,24 +39,30 @@ const NORMALIZED_STATUS_ALIASES: Record<string, UnifiedClaimStatus> = {
 };
 
 const STATUS_LABELS: Record<UnifiedClaimStatus, string> = {
+  draft: "Draft",
   submitted: "Submitted",
   request_additional_information: "Request Additional Information",
+  more_information: "Request Additional Information",
   rejected: "Rejected",
   in_process: "In Process",
   approved: "Approved",
 };
 
 const LEGACY_COMPATIBILITY_LABELS: Record<UnifiedClaimStatus, string> = {
+  draft: "Draft",
   submitted: "In review",
   request_additional_information: "Request Additional Information",
+  more_information: "Request Additional Information",
   rejected: "Rejected",
   in_process: "In progress",
   approved: "Approved",
 };
 
 const STATUS_ORDER: Record<UnifiedClaimStatus, number> = {
+  draft: -1,
   submitted: 0,
   request_additional_information: 1,
+  more_information: 1,
   rejected: 2,
   in_process: 3,
   approved: 4,

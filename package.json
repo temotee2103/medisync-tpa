@@ -4,33 +4,40 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node scripts/fix-export-rsc-aliases.mjs",
+    "build": "node scripts/assert-no-static-export.mjs && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:e2e": "playwright test",
+    "test:unit": "tsx --test src/lib/claimFlow.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.93.2",
+    "@zxing/browser": "^0.2.0",
+    "@zxing/library": "^0.22.0",
     "clsx": "^2.1.1",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "nodemailer": "^7.0.3",
+    "qrcode": "^1.5.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "tailwind-merge": "^3.4.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@playwright/test": "^1.59.0",
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/nodemailer": "^6.4.17",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tsx": "^4.22.4",
     "typescript": "^5"
   }
 }

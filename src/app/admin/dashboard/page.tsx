@@ -31,6 +31,10 @@ import {
   getProviderDirectorySnapshot,
   refreshProviderDirectorySnapshot,
   subscribeProviderDirectory,
+  getProviderCredentialsServerSnapshot,
+  getProviderCredentialsSnapshot,
+  subscribeProviderCredentials,
+  getProviderDirectory,
 } from "@/lib/providerSession";
 import {
   ensureMemberSeed,
@@ -84,6 +88,11 @@ export default function AdminDashboard() {
     subscribeProviderDirectory,
     getProviderDirectorySnapshot,
     getProviderDirectoryServerSnapshot
+  );
+  const providerCredentials = useSyncExternalStore(
+    subscribeProviderCredentials,
+    getProviderCredentialsSnapshot,
+    getProviderCredentialsServerSnapshot
   );
   const members = useSyncExternalStore(
     subscribeMemberDirectory,
@@ -189,6 +198,12 @@ export default function AdminDashboard() {
     const activeCompanies = companies.filter((company) => company.status === "Active");
     const activeProviders = providers.filter((provider) => provider.status === "Active");
     const activeMembers = members.filter((member) => member.status === "Active");
+    const vendorsWithCompliance = getProviderDirectory();
+    let compliancePendingCount = 0;
+    for (const vendor of vendorsWithCompliance) {
+      if (vendor.compliance?.clinicLicense?.status === "submitted") compliancePendingCount++;
+      compliancePendingCount += (vendor.compliance?.doctorApcs || []).filter((doc) => doc.status === "submitted").length;
+    }
     const providerPerformance = Object.entries(
       adminClaims.reduce<Record<string, { claims: number; amount: number }>>((accumulator, claim) => {
         const current = accumulator[claim.hospital] || { claims: 0, amount: 0 };
@@ -222,12 +237,13 @@ export default function AdminDashboard() {
       activeCompanies: activeCompanies.length,
       activeProviders: activeProviders.length,
       activeMembers: activeMembers.length,
+      compliancePendingCount,
       pendingDependentRequests: dependentRequests.filter((request) => request.status === "pending").length,
       topProvider: providerPerformance[0] || null,
       recentClaims,
       latestClaim: recentClaims[0] || null,
     };
-  }, [adminClaims, companies, dependentRequests, members, providers]);
+  }, [adminClaims, companies, dependentRequests, members, providers, providerCredentials]);
 
   const isDashboardLoading = !dashboardMetricsLoaded || !dependentRequestsLoaded;
   const formatDashboardMetric = (value: string | number) => (isDashboardLoading ? "Loading..." : String(value));
@@ -266,6 +282,15 @@ export default function AdminDashboard() {
           : "No provider activity yet",
       icon: Hospital,
       iconWrap: "bg-cyan-100 text-cyan-600",
+    },
+    {
+      label: "Pending Compliance",
+      value: formatDashboardMetric(analytics.compliancePendingCount.toLocaleString()),
+      meta: isDashboardLoading
+        ? "Loading compliance reviews..."
+        : `${analytics.compliancePendingCount} vendor document(s) awaiting approval`,
+      icon: ShieldCheck,
+      iconWrap: "bg-amber-100 text-amber-600",
     },
   ];
 
@@ -387,7 +412,7 @@ export default function AdminDashboard() {
         </div>
       </GlassCard>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {dashboardStats.map((stat) => {
           const Icon = stat.icon;
           return (

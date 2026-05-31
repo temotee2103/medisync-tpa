@@ -12,6 +12,10 @@ export type ProviderSession = {
 export const PROVIDER_CREDENTIAL_DOC_TYPES = {
   CLINIC_LICENSE: "clinic_license",
   APC: "apc",
+  BORANG_B: "borang_b",
+  BORANG_C: "borang_c",
+  SSM: "ssm",
+  TCM: "tcm",
 } as const;
 
 export type ProviderCredentialDocType =
@@ -60,9 +64,11 @@ export type VendorMemberAccount = {
 };
 
 export type VendorComplianceDocument = {
+  docType?: ProviderCredentialDocType;
   credentialId?: string;
   fileName?: string;
   fileDataUrl?: string;
+  storagePath?: string;
   fileMimeType?: string;
   expiryDate?: string;
   status?: "missing" | "submitted" | "approved" | "rejected";
@@ -78,6 +84,7 @@ export type VendorDoctorApc = {
   doctorName: string;
   fileName?: string;
   fileDataUrl?: string;
+  storagePath?: string;
   fileMimeType?: string;
   expiryDate?: string;
   status?: "missing" | "submitted" | "approved" | "rejected";
@@ -89,6 +96,7 @@ export type VendorDoctorApc = {
 
 export type VendorCompliance = {
   clinicLicense?: VendorComplianceDocument;
+  documents?: VendorComplianceDocument[];
   doctorApcs?: VendorDoctorApc[];
 };
 
@@ -425,7 +433,7 @@ const getCredentialSortKey = (row: ProviderCredentialDbRow) => {
 
 export const getProviderComplianceByVendorId = (vendorId: string): VendorCompliance => {
   const providerUuid = resolveProviderUuid(vendorId);
-  if (!providerUuid) return { clinicLicense: undefined, doctorApcs: [] };
+  if (!providerUuid) return { clinicLicense: undefined, documents: [], doctorApcs: [] };
 
   const providerRows = providerCredentialsSnapshot.filter((row) => row.provider_id === providerUuid);
   const clinicCandidates = providerRows.filter(
@@ -441,6 +449,7 @@ export const getProviderComplianceByVendorId = (vendorId: string): VendorComplia
         fileName: clinicRow.file_name || undefined,
         fileMimeType: clinicRow.mime_type || undefined,
         fileDataUrl: clinicRow.storage_path?.startsWith("data:") ? clinicRow.storage_path : undefined,
+        storagePath: clinicRow.storage_path || undefined,
         expiryDate: clinicRow.expiry_date || undefined,
         status: toCredentialStatus(clinicRow.status),
         submittedAt: (clinicRow.created_at || "").slice(0, 10) || undefined,
@@ -479,6 +488,7 @@ export const getProviderComplianceByVendorId = (vendorId: string): VendorComplia
       fileName: row.file_name || undefined,
       fileMimeType: row.mime_type || undefined,
       fileDataUrl: row.storage_path?.startsWith("data:") ? row.storage_path : undefined,
+      storagePath: row.storage_path || undefined,
       expiryDate: row.expiry_date || undefined,
       status: toCredentialStatus(row.status),
       submittedAt: (row.created_at || "").slice(0, 10) || undefined,
@@ -627,7 +637,7 @@ export const removeVendorMembersByVendor = async (vendorId: string) => {
   await refreshVendorMembersSnapshot();
 };
 
-export const upsertProviderCredential = async (payload: {
+export const insertProviderCredential = async (payload: {
   vendorId: string;
   docType: ProviderCredentialDocType;
   providerUserId?: string | null;
@@ -641,7 +651,7 @@ export const upsertProviderCredential = async (payload: {
   if (!providerUuid) return;
   const providerUserUuid = payload.providerUserId ? resolveProviderUserUuid(payload.vendorId, payload.providerUserId) : "";
   const supabase = createSupabaseBrowserClient();
-  const row = {
+  const row: Record<string, unknown> = {
     provider_id: providerUuid,
     provider_user_id: providerUserUuid || null,
     doc_type: payload.docType,
@@ -650,6 +660,7 @@ export const upsertProviderCredential = async (payload: {
     status: "submitted",
     file_name: payload.fileName,
     mime_type: payload.fileMimeType || null,
+    submitted_by: payload.submittedBy,
   };
   await supabase.from("provider_credentials").insert(row);
   await refreshProviderCredentialsSnapshot();
@@ -677,7 +688,7 @@ export const submitVendorClinicLicense = (
     submittedBy: "vendor" | "admin";
   }
 ) => {
-  void upsertProviderCredential({
+  void insertProviderCredential({
     vendorId,
     docType: PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE,
     providerUserId: null,
@@ -700,7 +711,7 @@ export const submitVendorDoctorApc = (
     submittedBy: "vendor" | "admin";
   }
 ) => {
-  void upsertProviderCredential({
+  void insertProviderCredential({
     vendorId,
     docType: PROVIDER_CREDENTIAL_DOC_TYPES.APC,
     providerUserId: payload.providerUserId,
@@ -729,7 +740,9 @@ export const isProviderCompliant = (vendorId: string) => {
   const provider = getProviderById(vendorId);
   if (!provider) return false;
   const compliance = provider.compliance || getProviderComplianceByVendorId(vendorId);
+  
   const clinicState = getDocumentState(compliance.clinicLicense);
+  const documentStates = (compliance.documents || []).map((doc) => getDocumentState(doc));
   const apcStates = (compliance.doctorApcs || [])
     .filter((doc) => {
       const doctor = getProviderUserById(vendorId, doc.providerUserId);
@@ -739,7 +752,7 @@ export const isProviderCompliant = (vendorId: string) => {
     .map((doc) => getDocumentState(doc));
   if (apcStates.length === 0) return false;
   const blockedStates = ["missing", "submitted", "rejected", "expired"];
-  return ![clinicState, ...apcStates].some((state) => blockedStates.includes(state));
+  return ![clinicState, ...documentStates, ...apcStates].some((state) => blockedStates.includes(state));
 };
 
 export const isProviderBlockedByCompliance = (vendorId: string) => {

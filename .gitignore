@@ -50,3 +50,10 @@ supabase/.temp/
 public/Comment & Materials/
 public/WhatsApp Image*.jpeg
 public/*.extracted.txt
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

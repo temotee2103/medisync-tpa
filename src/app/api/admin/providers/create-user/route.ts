@@ -141,7 +141,7 @@ export async function POST(request: Request) {
         .from("provider_credentials")
         .select("id")
         .eq("provider_user_id", providerUserId)
-        .eq("credential_type", "apc")
+        .eq("doc_type", "apc")
         .eq("status", "approved")
         .or(`expiry_date.is.null,expiry_date.gte.${today}`)
         .maybeSingle();

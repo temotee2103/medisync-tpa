@@ -27,11 +27,13 @@ import {
   getVendorMembersByVendor,
   normalizeProviderUserRole,
   isProviderCompliant,
-  submitVendorClinicLicense,
+  insertProviderCredential,
+  PROVIDER_CREDENTIAL_DOC_TYPES,
   submitVendorDoctorApc,
   subscribeProviderCredentials,
   subscribeProviderDirectory,
   subscribeVendorMembers,
+  type ProviderCredentialDocType,
   type ProviderSession,
 } from "@/lib/providerSession";
 import { getProviderSubmissionGuard } from "@/lib/providerComplianceGuard";
@@ -94,18 +96,10 @@ const downloadComplianceDocument = async (
 
 export default function CompliancePage() {
   const [isProviderContextResolved, setIsProviderContextResolved] = useState(false);
-  const [clinicUpload, setClinicUpload] = useState<{
-    fileName: string;
-    fileDataUrl: string;
-    fileMimeType: string;
-    expiryDate: string;
-  }>({
-    fileName: "",
-    fileDataUrl: "",
-    fileMimeType: "",
-    expiryDate: "",
-  });
-  const [clinicUploadError, setClinicUploadError] = useState("");
+  const [docUploads, setDocUploads] = useState<Record<string, {
+    fileName: string; fileDataUrl: string; fileMimeType: string;
+    expiryDate: string; error: string;
+  }>>({});
   const [apcUploadError, setApcUploadError] = useState("");
   const [apcUpload, setApcUpload] = useState<{
     providerUserId: string;
@@ -258,7 +252,7 @@ export default function CompliancePage() {
     !isProviderContextResolved ||
     (!!providerOrgId && !provider && providerDirectorySnapshot.length === 0);
 
-  const clinicStatus = provider?.compliance?.clinicLicense?.status || "missing";
+
   const apcList = visibleApcList;
   const selectedApcDoctorId =
     currentUserRole === "doctor"
@@ -270,6 +264,37 @@ export default function CompliancePage() {
     if (status === "submitted") return "bg-amber-100 text-amber-700";
     if (status === "rejected") return "bg-rose-100 text-rose-700";
     return "bg-slate-100 text-slate-600";
+  };
+
+  const DOC_TYPE_CONFIGS = [
+    { key: "clinic_license", label: "Provider License (Borang F)", icon: Building2Icon },
+    { key: "borang_b", label: "Borang B", icon: FileText },
+    { key: "borang_c", label: "Borang C", icon: FileText },
+    { key: "ssm", label: "SSM Certificate", icon: FileText },
+    { key: "tcm", label: "TCM Certificate", icon: FileText },
+  ] as const;
+
+  const getComplianceDoc = (docKey: string) => {
+    if (!provider?.compliance) return undefined;
+    if (docKey === "clinic_license") return provider.compliance.clinicLicense;
+    return (provider.compliance.documents || []).find(d => d.docType === docKey);
+  };
+  const getDocUploadState = (docKey: string) => docUploads[docKey] || { fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "", error: "" };
+  const setDocUploadField = (docKey: string, field: string, value: string) => {
+    setDocUploads(prev => ({ ...prev, [docKey]: { ...(prev[docKey] || { fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "", error: "" }), [field]: value } }));
+  };
+  const submitDocUpload = async (docType: string) => {
+    if (!session?.vendorId) return;
+    const upload = docUploads[docType];
+    if (!upload?.fileName || !upload?.expiryDate) return;
+    try {
+      await insertProviderCredential({ vendorId: session.vendorId, docType: docType as ProviderCredentialDocType, providerUserId: null, fileName: upload.fileName, fileDataUrl: upload.fileDataUrl, fileMimeType: upload.fileMimeType, expiryDate: upload.expiryDate, submittedBy: "vendor" });
+      setDocUploadField(docType, "fileName", "");
+      setDocUploadField(docType, "fileDataUrl", "");
+      setDocUploadField(docType, "fileMimeType", "");
+      setDocUploadField(docType, "expiryDate", "");
+      setDocUploadField(docType, "error", "");
+    } catch { setDocUploadField(docType, "error", "Upload failed. Please try again."); }
   };
 
   if (isResolvingProvider) {
@@ -335,136 +360,124 @@ export default function CompliancePage() {
       </GlassCard>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <GlassCard className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2">
-              <Building2Icon className="w-5 h-5 text-sky-500" />
-              Provider License (Borang B/F/C/TCM/SSM)
-            </h3>
-            <span className={`px-3 py-1 text-xs font-bold rounded-full flex items-center gap-1 ${statusPill(clinicStatus)}`}>
-              {clinicStatus === "approved" ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-              {(clinicStatus || "missing").toUpperCase()}
-            </span>
-          </div>
+        {DOC_TYPE_CONFIGS.map((config) => {
+          const currentDoc = getComplianceDoc(config.key);
+          const docStatus = currentDoc?.status || "missing";
+          const uploadState = getDocUploadState(config.key);
+          return (
+            <GlassCard key={config.key} className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  <config.icon className="w-5 h-5 text-sky-500" />
+                  {config.label}
+                </h3>
+                <span className={`px-3 py-1 text-xs font-bold rounded-full flex items-center gap-1 ${statusPill(docStatus)}`}>
+                  {docStatus === "approved" ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                  {docStatus.toUpperCase()}
+                </span>
+              </div>
 
-          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-white rounded-lg border border-slate-200 flex items-center justify-center text-slate-400">
-                <FileText className="w-5 h-5" />
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-white rounded-lg border border-slate-200 flex items-center justify-center text-slate-400">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-700">
+                      {currentDoc?.fileName || "No file uploaded"}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {currentDoc?.submittedAt
+                        ? `Submitted ${currentDoc.submittedAt}`
+                        : "Awaiting submission"}
+                    </p>
+                  </div>
+                  <GlassButton
+                    size="sm"
+                    variant="secondary"
+                    disabled={!currentDoc?.fileName}
+                    onClick={() => {
+                      if (!currentDoc?.fileName) return;
+                      downloadComplianceDocument(currentDoc.fileName, currentDoc.fileDataUrl, currentDoc.storagePath);
+                    }}
+                  >
+                    Open
+                  </GlassButton>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Expiry Date</label>
+                  <div className="relative">
+                    <input 
+                      type="date" 
+                      className="w-full px-4 py-2 glass-input rounded-lg bg-transparent relative z-10"
+                      value={currentDoc?.expiryDate || ""}
+                      disabled
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-slate-700">
-                  {provider.compliance?.clinicLicense?.fileName || "No file uploaded"}
-                </p>
-                <p className="text-xs text-slate-400">
-                  {provider.compliance?.clinicLicense?.submittedAt
-                    ? `Submitted ${provider.compliance.clinicLicense.submittedAt}`
-                    : "Awaiting submission"}
-                </p>
-              </div>
-              <GlassButton
-                size="sm"
-                variant="secondary"
-                disabled={!provider.compliance?.clinicLicense?.fileName}
-                onClick={() => {
-                  const doc = provider.compliance?.clinicLicense;
-                  if (!doc?.fileName) return;
-                  downloadComplianceDocument(doc.fileName, doc.fileDataUrl, doc.storagePath);
-                }}
-              >
-                Open
-              </GlassButton>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Expiry Date</label>
-              <div className="relative">
-                <input 
-                  type="date" 
-                  className="w-full px-4 py-2 glass-input rounded-lg bg-transparent relative z-10"
-                  value={provider.compliance?.clinicLicense?.expiryDate || ""}
-                  disabled
-                />
-              </div>
-            </div>
-          </div>
 
-          <div className="pt-6 border-t border-slate-100">
-            <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
-              <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                <UploadCloud className="w-8 h-8 text-slate-400 mb-2" />
-                <p className="text-sm text-slate-500 font-medium">
-                  {canManageClinicLicense ? "Upload clinic license file" : "Clinic license managed by provider admin"}
-                </p>
-                <p className="text-xs text-slate-400">PDF or JPG (Max 5MB)</p>
+              <div className="pt-6 border-t border-slate-100">
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <UploadCloud className="w-8 h-8 text-slate-400 mb-2" />
+                    <p className="text-sm text-slate-500 font-medium">
+                      {canManageClinicLicense ? `Upload ${config.label} file` : `${config.label} managed by provider admin`}
+                    </p>
+                    <p className="text-xs text-slate-400">PDF or JPG (Max 5MB)</p>
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.jpg,.jpeg,image/jpeg,image/png,application/pdf"
+                    disabled={!canManageClinicLicense}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      readFileAsDataUrl(file).then((dataUrl) => {
+                        setDocUploadField(config.key, "fileName", file.name);
+                        setDocUploadField(config.key, "fileDataUrl", dataUrl);
+                        setDocUploadField(config.key, "fileMimeType", file.type);
+                      });
+                    }}
+                  />
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                  <input
+                    type="text"
+                    className="glass-input px-3 py-2 bg-slate-50"
+                    placeholder="Selected filename"
+                    value={uploadState.fileName}
+                    readOnly
+                  />
+                  <input
+                    type="date"
+                    className="glass-input px-3 py-2"
+                    value={uploadState.expiryDate}
+                    onChange={(e) => setDocUploadField(config.key, "expiryDate", e.target.value)}
+                  />
+                </div>
+                <div className="mt-3">
+                  <GlassButton
+                    disabled={!canManageClinicLicense}
+                    onClick={() => submitDocUpload(config.key)}
+                  >
+                    Send Review
+                  </GlassButton>
+                </div>
+                {uploadState.error ? (
+                  <p className="mt-3 text-xs text-red-600">{uploadState.error}</p>
+                ) : null}
+                {!canManageClinicLicense ? (
+                  <p className="mt-3 text-xs text-slate-500">
+                    Switch to a provider admin login if you need to submit or replace the {config.label}.
+                  </p>
+                ) : null}
               </div>
-              <input
-                type="file"
-                className="hidden"
-                accept=".pdf,.jpg,.jpeg,image/jpeg,image/png,application/pdf"
-                disabled={!canManageClinicLicense}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  readFileAsDataUrl(file).then((dataUrl) => {
-                    setClinicUpload((prev) => ({
-                      ...prev,
-                      fileName: file.name,
-                      fileDataUrl: dataUrl,
-                      fileMimeType: file.type,
-                    }));
-                  });
-                }}
-              />
-            </label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-              <input
-                type="text"
-                className="glass-input px-3 py-2 bg-slate-50"
-                placeholder="Selected filename"
-                value={clinicUpload.fileName}
-                readOnly
-              />
-              <input
-                type="date"
-                className="glass-input px-3 py-2"
-                value={clinicUpload.expiryDate}
-                onChange={(e) => setClinicUpload((prev) => ({ ...prev, expiryDate: e.target.value }))}
-              />
-            </div>
-            <div className="mt-3">
-              <GlassButton
-                disabled={!canManageClinicLicense}
-                onClick={async () => {
-                  if (!session?.vendorId || !clinicUpload.fileName || !clinicUpload.expiryDate) return;
-                  try {
-                    await submitVendorClinicLicense(session.vendorId, {
-                      fileName: clinicUpload.fileName,
-                      fileDataUrl: clinicUpload.fileDataUrl,
-                      fileMimeType: clinicUpload.fileMimeType,
-                      expiryDate: clinicUpload.expiryDate,
-                      submittedBy: "vendor",
-                    });
-                    setClinicUpload({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
-                    setClinicUploadError("");
-                  } catch {
-                    setClinicUploadError("Upload failed. Please try again.");
-                  }
-                }}
-              >
-                Send Review
-              </GlassButton>
-            </div>
-            {clinicUploadError ? (
-              <p className="mt-3 text-xs text-red-600">{clinicUploadError}</p>
-            ) : null}
-            {!canManageClinicLicense ? (
-              <p className="mt-3 text-xs text-slate-500">
-                Switch to a provider admin login if you need to submit or replace the clinic license.
-              </p>
-            ) : null}
-          </div>
-        </GlassCard>
+            </GlassCard>
+          );
+        })}
 
         <GlassCard className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -472,8 +485,9 @@ export default function CompliancePage() {
               <StethoscopeIcon className="w-5 h-5 text-purple-500" />
               Annual Practicing Cert (APC) List
             </h3>
-            <span className={`inline-flex w-fit whitespace-nowrap px-3 py-1 text-xs font-bold rounded-full ${isCompliant ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-              {isCompliant ? "Approved" : "Review Needed"}
+            <span className={`inline-flex w-fit whitespace-nowrap px-3 py-1 text-xs font-bold rounded-full flex items-center gap-1 ${statusPill(isCompliant ? "approved" : "submitted")}`}>
+              {isCompliant ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+              {(isCompliant ? "APPROVED" : "SUBMITTED")}
             </span>
           </div>
 

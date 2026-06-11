@@ -103,7 +103,7 @@ export type VendorCompliance = {
 export type VendorCompliancePendingItem = {
   vendorId: string;
   providerName: string;
-  kind: "clinic_license" | "doctor_apc";
+  kind: ProviderCredentialDocType;
   name: string;
   credentialId?: string;
   providerUserId?: string;
@@ -438,25 +438,41 @@ export const getProviderComplianceByVendorId = (vendorId: string): VendorComplia
   const providerRows = providerCredentialsSnapshot.filter((row) => row.provider_id === providerUuid);
   const clinicCandidates = providerRows.filter(
     (row) =>
-      String(row.doc_type || "") === PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE &&
+      (row.doc_type === "clinic_license" || row.doc_type === "borang_b" || row.doc_type === "borang_c" || row.doc_type === "ssm" || row.doc_type === "tcm") &&
       !row.provider_user_id
   );
-  const clinicRow = [...clinicCandidates].sort((a, b) => getCredentialSortKey(b).localeCompare(getCredentialSortKey(a)))[0];
 
-  const clinicLicense: VendorComplianceDocument | undefined = clinicRow
+  const clinicLicenseRow = [...clinicCandidates.filter(r => r.doc_type === "clinic_license")].sort((a, b) => getCredentialSortKey(b).localeCompare(getCredentialSortKey(a)))[0];
+  const documentRows = clinicCandidates.filter(r => r.doc_type !== "clinic_license");
+
+  const clinicLicense: VendorComplianceDocument | undefined = clinicLicenseRow
     ? {
-        credentialId: clinicRow.id,
-        fileName: clinicRow.file_name || undefined,
-        fileMimeType: clinicRow.mime_type || undefined,
-        fileDataUrl: clinicRow.storage_path?.startsWith("data:") ? clinicRow.storage_path : undefined,
-        storagePath: clinicRow.storage_path || undefined,
-        expiryDate: clinicRow.expiry_date || undefined,
-        status: toCredentialStatus(clinicRow.status),
-        submittedAt: (clinicRow.created_at || "").slice(0, 10) || undefined,
-        reviewedAt: (clinicRow.reviewed_at || "").slice(0, 10) || undefined,
-        reviewedBy: clinicRow.reviewed_at ? "Admin" : undefined,
+        credentialId: clinicLicenseRow.id,
+        fileName: clinicLicenseRow.file_name || undefined,
+        fileMimeType: clinicLicenseRow.mime_type || undefined,
+        fileDataUrl: clinicLicenseRow.storage_path?.startsWith("data:") ? clinicLicenseRow.storage_path : undefined,
+        storagePath: clinicLicenseRow.storage_path || undefined,
+        expiryDate: clinicLicenseRow.expiry_date || undefined,
+        status: toCredentialStatus(clinicLicenseRow.status),
+        submittedAt: (clinicLicenseRow.created_at || "").slice(0, 10) || undefined,
+        reviewedAt: (clinicLicenseRow.reviewed_at || "").slice(0, 10) || undefined,
+        reviewedBy: clinicLicenseRow.reviewed_at ? "Admin" : undefined,
       }
     : undefined;
+
+  const documents: VendorComplianceDocument[] = documentRows.map((row) => ({
+    docType: (row.doc_type || "clinic_license") as ProviderCredentialDocType,
+    credentialId: row.id,
+    fileName: row.file_name || undefined,
+    fileMimeType: row.mime_type || undefined,
+    fileDataUrl: row.storage_path?.startsWith("data:") ? row.storage_path : undefined,
+    storagePath: row.storage_path || undefined,
+    expiryDate: row.expiry_date || undefined,
+    status: toCredentialStatus(row.status),
+    submittedAt: (row.created_at || "").slice(0, 10) || undefined,
+    reviewedAt: (row.reviewed_at || "").slice(0, 10) || undefined,
+    reviewedBy: row.reviewed_at ? "Admin" : undefined,
+  }));
 
   const apcRows = providerRows.filter(
     (row) =>
@@ -499,6 +515,7 @@ export const getProviderComplianceByVendorId = (vendorId: string): VendorComplia
 
   return {
     clinicLicense,
+    documents,
     doctorApcs,
   };
 };
@@ -524,10 +541,22 @@ export const getVendorPendingComplianceItems = (vendorId: string): VendorComplia
     items.push({
       vendorId,
       providerName,
-      kind: "doctor_apc",
+      kind: PROVIDER_CREDENTIAL_DOC_TYPES.APC,
       name: `${doc.doctorName} • ${doc.fileName || "Unnamed file"}`,
       credentialId: doc.credentialId,
       providerUserId: doc.providerUserId,
+      submittedAt: doc.submittedAt,
+    });
+  });
+
+  (compliance.documents || []).forEach((doc) => {
+    if (doc.status !== "submitted") return;
+    items.push({
+      vendorId,
+      providerName,
+      kind: doc.docType || "clinic_license",
+      name: doc.fileName || "Unnamed file",
+      credentialId: doc.credentialId,
       submittedAt: doc.submittedAt,
     });
   });

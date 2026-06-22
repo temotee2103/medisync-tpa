@@ -232,7 +232,7 @@ export default function PolicySearchPage() {
             <td className="px-4 py-3">
               <span className={cn(
                 "text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full",
-                policy.status === 'Active' ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                policy.status === 'Active' ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
               )}>
                 {policy.status}
               </span>
@@ -523,7 +523,7 @@ export default function PolicySearchPage() {
                       <span className="text-sm text-slate-500">Membership Status</span>
                       <span className={cn(
                         "text-sm font-semibold",
-                        selectedPolicy.status === "Active" ? "text-emerald-600" : "text-red-600"
+                        selectedPolicy.status === "Active" ? "text-emerald-700" : "text-slate-500"
                       )}>
                         {selectedPolicy.status}
                       </span>

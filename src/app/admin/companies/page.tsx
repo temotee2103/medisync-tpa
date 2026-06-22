@@ -2,6 +2,8 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { ResponsiveDataView } from "@/components/ui/ResponsiveDataView";
+import { MobileRecordCard } from "@/components/ui/MobileRecordCard";
 import { 
   Building2,
   Plus,
@@ -830,6 +832,148 @@ export default function AdminCompanyManagementPage() {
     }
   };
 
+  const renderCompaniesCards = () => (
+    <div className="space-y-3">
+      {filteredCompanies.length === 0 ? (
+        <GlassCard className="p-6 text-center text-sm text-slate-400">No companies found.</GlassCard>
+      ) : (
+        filteredCompanies.map((company) => (
+          <MobileRecordCard
+            key={company.companyId}
+            title={<span className="font-semibold text-slate-800">{company.name}</span>}
+            subtitle={
+              <span>
+                {company.companyId}{" · "}
+                {company.registrationNoNew}
+                {company.registrationNoOld && company.registrationNoOld !== company.registrationNoNew
+                  ? ` (Old: ${company.registrationNoOld})`
+                  : ""}
+              </span>
+            }
+            badge={
+              <span
+                className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                  company.status === "Active"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {company.status}
+              </span>
+            }
+            footer={
+              <div className="flex flex-wrap justify-end gap-2">
+                <GlassButton
+                  variant="ghost"
+                  className="h-9 w-9 p-0 flex items-center justify-center text-sky-600 hover:text-sky-700"
+                  title="Edit company"
+                  onClick={() => {
+                    setSelectedCompanyId(company.companyId);
+                    setEditingCompanyId(company.companyId);
+                    setCompanyModalView("details");
+                    setCompanyForm(company);
+                    setCompanyFormError("");
+                    setIsCompanyModalOpen(true);
+                  }}
+                >
+                  <Pencil className="w-4 h-4" />
+                </GlassButton>
+                <GlassButton
+                  variant="ghost"
+                  className="h-9 w-9 p-0 flex items-center justify-center"
+                  title={company.status === "Active" ? "Disable company" : "Activate company"}
+                  disabled={disableCompanyEditing}
+                  onClick={async () => {
+                    if (disableCompanyEditing) return;
+                    const nextStatus: Company["status"] = company.status === "Active" ? "Disabled" : "Active";
+                    const updated = { ...company, status: nextStatus };
+                    updateSelectedCompany(updated);
+                    if (editingCompanyId === company.companyId) {
+                      setCompanyForm((prev) => ({ ...prev, status: nextStatus }));
+                    }
+                    await loadCompanies();
+                    await logAdminAction(
+                      `Changed company status: ${company.companyId} -> ${nextStatus}`,
+                      "companies",
+                      company.companyId
+                    );
+                  }}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                </GlassButton>
+                <GlassButton
+                  variant="ghost"
+                  className="h-9 w-9 p-0 flex items-center justify-center"
+                  title="Add member"
+                  disabled={disableCompanyEditing}
+                  onClick={() => {
+                    setSelectedCompanyId(company.companyId);
+                    setMemberForm(createEmptyMemberForm(company));
+                    setMemberFormError("");
+                    setIsMemberModalOpen(true);
+                  }}
+                >
+                  <UserPlus className="w-4 h-4" />
+                </GlassButton>
+                <GlassButton
+                  variant="ghost"
+                  className="h-9 w-9 p-0 flex items-center justify-center"
+                  title="Bulk upload members (Excel)"
+                  disabled={disableCompanyEditing}
+                  onClick={() => {
+                    setSelectedCompanyId(company.companyId);
+                    setBulkImportFile(null);
+                    setBulkImportError("");
+                    setBulkImportPreview([]);
+                    setIsBulkImportOpen(true);
+                  }}
+                >
+                  <Upload className="w-4 h-4" />
+                </GlassButton>
+                {canDeleteCompanies && (
+                  <GlassButton
+                    variant="ghost"
+                    className="h-9 w-9 p-0 flex items-center justify-center text-rose-600 hover:text-rose-700"
+                    title="Delete company"
+                    onClick={async () => {
+                      const shouldDelete = window.confirm(`Delete ${company.name} and all its members?`);
+                      if (!shouldDelete) return;
+                      try {
+                        const supabase = createSupabaseBrowserClient();
+                        const { error } = await supabase
+                          .from("companies")
+                          .delete()
+                          .eq("company_id", company.companyId);
+                        if (error) throw error;
+                      } catch (error) {
+                        alert(normalizeSupabaseErrorMessage(error, "Failed to delete company."));
+                        return;
+                      }
+                      if (selectedCompanyId === company.companyId) {
+                        setSelectedCompanyId("");
+                      }
+                      if (editingCompanyId === company.companyId) {
+                        setIsCompanyModalOpen(false);
+                        setEditingCompanyId(null);
+                        setCompanyModalView("details");
+                      }
+                      setCompanies((prev) => prev.filter((entry) => entry.companyId !== company.companyId));
+                      setMembers([]);
+                      await loadCompanies();
+                      await logAdminAction(`Deleted company ${company.companyId}`, "companies", company.companyId);
+                    }}
+                  >
+                    <XCircle className="w-4 h-4" />
+                  </GlassButton>
+                )}
+              </div>
+            }
+          />
+        ))
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -888,155 +1032,160 @@ export default function AdminCompanyManagementPage() {
         </div>
       </GlassCard>
 
-      <GlassCard className="p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200/60">
-          <h2 className="text-sm font-bold text-slate-800">Corporate Grid View</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50/80">
-              <tr className="text-left text-xs uppercase tracking-widest text-slate-400">
-                <th className="px-6 py-3">Company</th>
-                <th className="px-6 py-3">Company ID</th>
-                <th className="px-6 py-3">Registration</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredCompanies.map((company) => (
-                <tr key={company.companyId} className={`border-t border-slate-100 ${activeCompanyId === company.companyId ? "bg-sky-50/60" : "hover:bg-slate-50/60"}`}>
-                  <td className="px-6 py-4 font-semibold text-slate-800">{company.name}</td>
-                  <td className="px-6 py-4 text-slate-500">{company.companyId}</td>
-                  <td className="px-6 py-4 text-slate-500">
-                    <div className="space-y-0.5">
-                      <p>{company.registrationNoNew}</p>
-                      <p className="text-[11px] text-slate-400">Old: {company.registrationNoOld || "—"}</p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${company.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                      {company.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex justify-end gap-2">
-                      <GlassButton
-                        variant="ghost"
-                        className="h-9 w-9 p-0 flex items-center justify-center text-sky-600 hover:text-sky-700"
-                        title="Edit company"
-                        onClick={() => {
-                          setSelectedCompanyId(company.companyId);
-                          setEditingCompanyId(company.companyId);
-                          setCompanyModalView("details");
-                          setCompanyForm(company);
-                          setCompanyFormError("");
-                          setIsCompanyModalOpen(true);
-                        }}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </GlassButton>
-                      <GlassButton
-                        variant="ghost"
-                        className="h-9 w-9 p-0 flex items-center justify-center"
-                        title={company.status === "Active" ? "Disable company" : "Activate company"}
-                        disabled={disableCompanyEditing}
-                        onClick={async () => {
-                          if (disableCompanyEditing) return;
-                          const nextStatus: Company["status"] = company.status === "Active" ? "Disabled" : "Active";
-                          const updated = { ...company, status: nextStatus };
-                          updateSelectedCompany(updated);
-                          if (editingCompanyId === company.companyId) {
-                            setCompanyForm((prev) => ({ ...prev, status: nextStatus }));
-                          }
-                          await loadCompanies();
-                          await logAdminAction(
-                            `Changed company status: ${company.companyId} -> ${nextStatus}`,
-                            "companies",
-                            company.companyId
-                          );
-                        }}
-                      >
-                          <ShieldCheck className="w-4 h-4" />
-                      </GlassButton>
-                      <GlassButton
-                        variant="ghost"
-                        className="h-9 w-9 p-0 flex items-center justify-center"
-                        title="Add member"
-                        disabled={disableCompanyEditing}
-                        onClick={() => {
-                          setSelectedCompanyId(company.companyId);
-                          setMemberForm(createEmptyMemberForm(company));
-                          setMemberFormError("");
-                          setIsMemberModalOpen(true);
-                        }}
-                      >
-                        <UserPlus className="w-4 h-4" />
-                      </GlassButton>
-                      <GlassButton
-                        variant="ghost"
-                        className="h-9 w-9 p-0 flex items-center justify-center"
-                        title="Bulk upload members (Excel)"
-                        disabled={disableCompanyEditing}
-                        onClick={() => {
-                          setSelectedCompanyId(company.companyId);
-                          setBulkImportFile(null);
-                          setBulkImportError("");
-                          setBulkImportPreview([]);
-                          setIsBulkImportOpen(true);
-                        }}
-                      >
-                        <Upload className="w-4 h-4" />
-                      </GlassButton>
-                        {canDeleteCompanies && (
+      <ResponsiveDataView
+        desktop={
+          <GlassCard className="p-0 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200/60">
+              <h2 className="text-sm font-bold text-slate-800">Corporate Grid View</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50/80">
+                  <tr className="text-left text-xs uppercase tracking-widest text-slate-400">
+                    <th className="px-6 py-3">Company</th>
+                    <th className="px-6 py-3">Company ID</th>
+                    <th className="px-6 py-3">Registration</th>
+                    <th className="px-6 py-3">Status</th>
+                    <th className="px-6 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCompanies.map((company) => (
+                    <tr key={company.companyId} className={`border-t border-slate-100 ${activeCompanyId === company.companyId ? "bg-sky-50/60" : "hover:bg-slate-50/60"}`}>
+                      <td className="px-6 py-4 font-semibold text-slate-800">{company.name}</td>
+                      <td className="px-6 py-4 text-slate-500">{company.companyId}</td>
+                      <td className="px-6 py-4 text-slate-500">
+                        <div className="space-y-0.5">
+                          <p>{company.registrationNoNew}</p>
+                          <p className="text-[11px] text-slate-400">Old: {company.registrationNoOld || "—"}</p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${company.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                          {company.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex justify-end gap-2">
                           <GlassButton
                             variant="ghost"
-                            className="h-9 w-9 p-0 flex items-center justify-center text-rose-600 hover:text-rose-700"
-                            title="Delete company"
-                            onClick={async () => {
-                              const shouldDelete = window.confirm(`Delete ${company.name} and all its members?`);
-                              if (!shouldDelete) return;
-                              try {
-                                const supabase = createSupabaseBrowserClient();
-                                const { error } = await supabase
-                                  .from("companies")
-                                  .delete()
-                                  .eq("company_id", company.companyId);
-                                if (error) throw error;
-                              } catch (error) {
-                                alert(normalizeSupabaseErrorMessage(error, "Failed to delete company."));
-                                return;
-                              }
-                              if (selectedCompanyId === company.companyId) {
-                                setSelectedCompanyId("");
-                              }
-                              if (editingCompanyId === company.companyId) {
-                                setIsCompanyModalOpen(false);
-                                setEditingCompanyId(null);
-                                setCompanyModalView("details");
-                              }
-                              setCompanies((prev) => prev.filter((entry) => entry.companyId !== company.companyId));
-                              setMembers([]);
-                              await loadCompanies();
-                              await logAdminAction(`Deleted company ${company.companyId}`, "companies", company.companyId);
+                            className="h-9 w-9 p-0 flex items-center justify-center text-sky-600 hover:text-sky-700"
+                            title="Edit company"
+                            onClick={() => {
+                              setSelectedCompanyId(company.companyId);
+                              setEditingCompanyId(company.companyId);
+                              setCompanyModalView("details");
+                              setCompanyForm(company);
+                              setCompanyFormError("");
+                              setIsCompanyModalOpen(true);
                             }}
                           >
-                            <XCircle className="w-4 h-4" />
+                            <Pencil className="w-4 h-4" />
                           </GlassButton>
-                        )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredCompanies.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-slate-400">No companies found.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </GlassCard>
+                          <GlassButton
+                            variant="ghost"
+                            className="h-9 w-9 p-0 flex items-center justify-center"
+                            title={company.status === "Active" ? "Disable company" : "Activate company"}
+                            disabled={disableCompanyEditing}
+                            onClick={async () => {
+                              if (disableCompanyEditing) return;
+                              const nextStatus: Company["status"] = company.status === "Active" ? "Disabled" : "Active";
+                              const updated = { ...company, status: nextStatus };
+                              updateSelectedCompany(updated);
+                              if (editingCompanyId === company.companyId) {
+                                setCompanyForm((prev) => ({ ...prev, status: nextStatus }));
+                              }
+                              await loadCompanies();
+                              await logAdminAction(
+                                `Changed company status: ${company.companyId} -> ${nextStatus}`,
+                                "companies",
+                                company.companyId
+                              );
+                            }}
+                          >
+                              <ShieldCheck className="w-4 h-4" />
+                          </GlassButton>
+                          <GlassButton
+                            variant="ghost"
+                            className="h-9 w-9 p-0 flex items-center justify-center"
+                            title="Add member"
+                            disabled={disableCompanyEditing}
+                            onClick={() => {
+                              setSelectedCompanyId(company.companyId);
+                              setMemberForm(createEmptyMemberForm(company));
+                              setMemberFormError("");
+                              setIsMemberModalOpen(true);
+                            }}
+                          >
+                            <UserPlus className="w-4 h-4" />
+                          </GlassButton>
+                          <GlassButton
+                            variant="ghost"
+                            className="h-9 w-9 p-0 flex items-center justify-center"
+                            title="Bulk upload members (Excel)"
+                            disabled={disableCompanyEditing}
+                            onClick={() => {
+                              setSelectedCompanyId(company.companyId);
+                              setBulkImportFile(null);
+                              setBulkImportError("");
+                              setBulkImportPreview([]);
+                              setIsBulkImportOpen(true);
+                            }}
+                          >
+                            <Upload className="w-4 h-4" />
+                          </GlassButton>
+                            {canDeleteCompanies && (
+                              <GlassButton
+                                variant="ghost"
+                                className="h-9 w-9 p-0 flex items-center justify-center text-rose-600 hover:text-rose-700"
+                                title="Delete company"
+                                onClick={async () => {
+                                  const shouldDelete = window.confirm(`Delete ${company.name} and all its members?`);
+                                  if (!shouldDelete) return;
+                                  try {
+                                    const supabase = createSupabaseBrowserClient();
+                                    const { error } = await supabase
+                                      .from("companies")
+                                      .delete()
+                                      .eq("company_id", company.companyId);
+                                    if (error) throw error;
+                                  } catch (error) {
+                                    alert(normalizeSupabaseErrorMessage(error, "Failed to delete company."));
+                                    return;
+                                  }
+                                  if (selectedCompanyId === company.companyId) {
+                                    setSelectedCompanyId("");
+                                  }
+                                  if (editingCompanyId === company.companyId) {
+                                    setIsCompanyModalOpen(false);
+                                    setEditingCompanyId(null);
+                                    setCompanyModalView("details");
+                                  }
+                                  setCompanies((prev) => prev.filter((entry) => entry.companyId !== company.companyId));
+                                  setMembers([]);
+                                  await loadCompanies();
+                                  await logAdminAction(`Deleted company ${company.companyId}`, "companies", company.companyId);
+                                }}
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </GlassButton>
+                            )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredCompanies.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-8 text-center text-slate-400">No companies found.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </GlassCard>
+        }
+        mobile={renderCompaniesCards()}
+      />
 
       {isCompanyModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-200/70 backdrop-blur-sm">

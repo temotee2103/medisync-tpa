@@ -2,6 +2,8 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { ResponsiveDataView } from "@/components/ui/ResponsiveDataView";
+import { MobileRecordCard } from "@/components/ui/MobileRecordCard";
 import {
   PieChart,
   DollarSign,
@@ -527,28 +529,61 @@ export default function ReportsPage() {
               View All
             </GlassButton>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-slate-50/50">
-                <tr>
-                  <th className="px-4 py-3 rounded-l-lg">Reference</th>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                  <th className="px-4 py-3 rounded-r-lg">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+          <ResponsiveDataView
+            desktop={
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-slate-500 uppercase bg-slate-50/50">
+                    <tr>
+                      <th className="px-4 py-3 rounded-l-lg">Reference</th>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3 text-right">Amount</th>
+                      <th className="px-4 py-3 rounded-r-lg">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {isReportsLoading && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">Loading payout log...</td>
+                      </tr>
+                    )}
+                    {!isReportsLoading && payoutLog.map((log, i) => (
+                      <tr key={i} className="hover:bg-white/50 transition-colors">
+                        <td className="px-4 py-3 font-mono font-medium text-slate-700">{log.reference}</td>
+                        <td className="px-4 py-3 text-slate-500">{log.date}</td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-800">RM {log.amount.toLocaleString()}</td>
+                        <td className="px-4 py-3">
+                          <span className={cn(
+                            "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
+                            log.status === "Approved" ? "bg-emerald-100 text-emerald-600" :
+                            log.status === "Rejected" ? "bg-rose-100 text-rose-600" :
+                            "bg-amber-100 text-amber-600"
+                          )}>
+                            {log.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {!isReportsLoading && payoutLog.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">No approved payout records are available for the current filters.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            }
+            mobile={
+              <div className="space-y-3">
                 {isReportsLoading && (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">Loading payout log...</td>
-                  </tr>
+                  <p className="text-sm text-slate-500 text-center py-6">Loading payout log...</p>
                 )}
                 {!isReportsLoading && payoutLog.map((log, i) => (
-                  <tr key={i} className="hover:bg-white/50 transition-colors">
-                    <td className="px-4 py-3 font-mono font-medium text-slate-700">{log.reference}</td>
-                    <td className="px-4 py-3 text-slate-500">{log.date}</td>
-                    <td className="px-4 py-3 text-right font-bold text-slate-800">RM {log.amount.toLocaleString()}</td>
-                    <td className="px-4 py-3">
+                  <MobileRecordCard
+                    key={i}
+                    title={<span className="font-mono">{log.reference}</span>}
+                    subtitle={log.date}
+                    badge={
                       <span className={cn(
                         "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
                         log.status === "Approved" ? "bg-emerald-100 text-emerald-600" :
@@ -557,17 +592,16 @@ export default function ReportsPage() {
                       )}>
                         {log.status}
                       </span>
-                    </td>
-                  </tr>
+                    }
+                    meta={<span>RM {log.amount.toLocaleString("en-MY")}</span>}
+                  />
                 ))}
                 {!isReportsLoading && payoutLog.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">No approved payout records are available for the current filters.</td>
-                  </tr>
+                  <p className="text-sm text-slate-500 text-center py-6">No approved payout records are available for the current filters.</p>
                 )}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            }
+          />
         </GlassCard>
 
       </div>

@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
+import { ResponsiveDataView } from "@/components/ui/ResponsiveDataView";
+import { MobileRecordCard } from "@/components/ui/MobileRecordCard";
 import { ensureMemberSeed, getMemberDirectory } from "@/lib/memberSession";
 import {
   ensureCompaniesStore,
@@ -207,6 +209,56 @@ export default function PolicySearchPage() {
     setAddPolicyDraft((prev) => ({ ...prev, memberKey: "" }));
   };
 
+  const renderDesktopTable = () => (
+    <>
+      <thead className="sticky top-0 z-10">
+        <tr className="bg-white/60 border-b border-white/60">
+          <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Policy ID</th>
+          <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Company</th>
+          <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Holder</th>
+          <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Plan</th>
+          <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+          <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Expiry</th>
+          <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-white/20">
+        {filteredPolicies.map((policy) => (
+          <tr key={policy.id} className="transition-colors hover:bg-white/30">
+            <td className="px-4 py-3 text-sm font-semibold text-slate-700">{policy.id}</td>
+            <td className="px-4 py-3 text-sm text-slate-700">{policy.companyName}</td>
+            <td className="px-4 py-3 text-sm text-slate-700">{policy.holder}</td>
+            <td className="px-4 py-3 text-sm text-slate-600">{policy.plan}</td>
+            <td className="px-4 py-3">
+              <span className={cn(
+                "text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full",
+                policy.status === 'Active' ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+              )}>
+                {policy.status}
+              </span>
+            </td>
+            <td className="px-4 py-3 text-sm text-slate-500">{policy.expiry}</td>
+            <td className="px-4 py-3 text-right">
+              <div className="flex justify-end gap-2">
+                <GlassButton variant="secondary" className="h-9 w-9 p-0" title="Info" onClick={() => openPolicyInfo(policy)}>
+                  <Info className="w-4 h-4" />
+                </GlassButton>
+                <GlassButton variant="ghost" className="h-9 w-9 p-0" title="Adjust Plan" onClick={() => openPolicyEdit(policy)}>
+                  <Settings className="w-4 h-4" />
+                </GlassButton>
+              </div>
+            </td>
+          </tr>
+        ))}
+        {filteredPolicies.length === 0 && (
+          <tr>
+            <td colSpan={7} className="text-center text-slate-400 py-8 text-sm italic">No members found.</td>
+          </tr>
+        )}
+      </tbody>
+    </>
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -252,68 +304,55 @@ export default function PolicySearchPage() {
           </GlassCard>
 
           <GlassCard className="overflow-hidden p-0 border-white/40">
-            <div className="overflow-x-auto max-h-[calc(100vh-20rem)] custom-scrollbar">
-              <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 z-10">
-                  <tr className="bg-white/60 border-b border-white/60">
-                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Policy ID</th>
-                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Company</th>
-                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Holder</th>
-                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Plan</th>
-                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Expiry</th>
-                    <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/20">
+            <ResponsiveDataView
+              desktop={
+                <div className="overflow-x-auto max-h-[calc(100vh-20rem)] custom-scrollbar">
+                  <table className="w-full text-left border-collapse">
+                    {renderDesktopTable()}
+                  </table>
+                </div>
+              }
+              mobile={
+                <div className="divide-y divide-slate-100 max-h-[calc(100vh-16rem)] overflow-y-auto">
                   {filteredPolicies.map((policy) => (
-                    <tr
+                    <MobileRecordCard
                       key={policy.id}
-                      className="transition-colors hover:bg-white/30"
-                    >
-                      <td className="px-4 py-3 text-sm font-semibold text-slate-700">{policy.id}</td>
-                      <td className="px-4 py-3 text-sm text-slate-700">{policy.companyName}</td>
-                      <td className="px-4 py-3 text-sm text-slate-700">{policy.holder}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600">{policy.plan}</td>
-                      <td className="px-4 py-3">
+                      title={policy.holder}
+                      subtitle={`${policy.companyName} · ${policy.id}`}
+                      badge={
                         <span className={cn(
                           "text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full",
                           policy.status === 'Active' ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
                         )}>
                           {policy.status}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-500">{policy.expiry}</td>
-                      <td className="px-4 py-3 text-right">
+                      }
+                      meta={
+                        <>
+                          <span>Plan: {policy.plan}</span>
+                          <span>Expiry: {policy.expiry}</span>
+                          <span>NRIC: {policy.nric}</span>
+                          {policy.dependents.length > 0 && <span>Dependents: {policy.dependents.length}</span>}
+                        </>
+                      }
+                      footer={
                         <div className="flex justify-end gap-2">
-                          <GlassButton
-                            variant="secondary"
-                            className="h-9 w-9 p-0"
-                            title="Info"
-                            onClick={() => openPolicyInfo(policy)}
-                          >
+                          <GlassButton variant="secondary" className="h-9 w-9 p-0" title="Info" onClick={() => openPolicyInfo(policy)}>
                             <Info className="w-4 h-4" />
                           </GlassButton>
-                          <GlassButton
-                            variant="ghost"
-                            className="h-9 w-9 p-0"
-                            title="Adjust Plan"
-                            onClick={() => openPolicyEdit(policy)}
-                          >
+                          <GlassButton variant="ghost" className="h-9 w-9 p-0" title="Adjust Plan" onClick={() => openPolicyEdit(policy)}>
                             <Settings className="w-4 h-4" />
                           </GlassButton>
                         </div>
-                      </td>
-                    </tr>
+                      }
+                    />
                   ))}
                   {filteredPolicies.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="text-center text-slate-400 py-8 text-sm italic">No members found.</td>
-                    </tr>
+                    <div className="text-center text-slate-400 py-8 text-sm italic">No members found.</div>
                   )}
-                </tbody>
-              </table>
-            </div>
+                </div>
+              }
+            />
           </GlassCard>
         </div>
 

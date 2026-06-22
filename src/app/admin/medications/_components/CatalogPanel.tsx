@@ -361,7 +361,8 @@ export default function CatalogPanel({ catalogType }: Props) {
           </select>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Desktop table */}
+        <div className="hidden lg:block overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-slate-500 uppercase bg-slate-50/50">
               <tr>
@@ -391,6 +392,60 @@ export default function CatalogPanel({ catalogType }: Props) {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        className="px-3 py-1.5 text-xs rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700"
+                        onClick={() => void toggleStatus(item)}
+                        disabled={isCatalogReadOnly || loading}
+                      >
+                        {item.status === "Active" ? "Deactivate" : "Activate"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td className="px-4 py-6 text-slate-500" colSpan={catalogType === "investigations" ? 4 : 3}>
+                    {loading ? "Loading..." : "No items found."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile table with sticky first column */}
+        <div className="lg:hidden overflow-x-auto -mx-4 px-4">
+          <table className="text-sm text-left w-max min-w-full">
+            <thead className="text-xs text-slate-500 uppercase bg-slate-50/50">
+              <tr>
+                <th className="sticky left-0 z-10 bg-slate-50/50 px-4 py-3 font-bold whitespace-nowrap">Name</th>
+                {catalogType === "investigations" && <th className="px-4 py-3 font-bold whitespace-nowrap">Short</th>}
+                <th className="px-4 py-3 font-bold whitespace-nowrap">Status</th>
+                <th className="px-4 py-3 text-right font-bold whitespace-nowrap">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.map((item) => (
+                <tr key={item.id} className="hover:bg-white/50 transition-colors">
+                  <td className="sticky left-0 z-[5] bg-white px-4 py-3 font-medium text-slate-800 whitespace-nowrap">{item.name}</td>
+                  {catalogType === "investigations" && (
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{investigationMeta[item.id]?.shortName || "-"}</td>
+                  )}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span
+                      className={cn(
+                        "px-2 py-1 rounded-full text-[10px] font-bold uppercase border",
+                        item.status === "Active"
+                          ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                          : "bg-slate-50 text-slate-400 border-slate-100"
+                      )}
+                    >
+                      {item.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
                     <div className="flex justify-end gap-2">
                       <button
                         className="px-3 py-1.5 text-xs rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700"

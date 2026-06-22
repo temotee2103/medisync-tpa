@@ -14,7 +14,8 @@ import {
   AlertCircle,
   Calendar,
   CheckCircle2,
-  QrCode
+  QrCode,
+  XCircle
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
@@ -168,6 +169,12 @@ export default function ProviderInvoicePage() {
   const [rlRequired, setRlRequired] = useState<"Y" | "N">("N");
   const [mcFile, setMcFile] = useState<File | null>(null);
   const [mcFileName, setMcFileName] = useState("");
+  const [isMcModalOpen, setIsMcModalOpen] = useState(false);
+  const [mcDiagnosisInput, setMcDiagnosisInput] = useState("");
+  const [mcDiagnosisList, setMcDiagnosisList] = useState<string[]>([]);
+  const [mcReExaminationDate, setMcReExaminationDate] = useState("");
+  const [mcFitDutyFrom, setMcFitDutyFrom] = useState("");
+  const [mcFitDutyTo, setMcFitDutyTo] = useState("");
   const [referralFile, setReferralFile] = useState<File | null>(null);
   const [referralFileName, setReferralFileName] = useState("");
   const [finalBillFile, setFinalBillFile] = useState<File | null>(null);
@@ -1280,6 +1287,37 @@ export default function ProviderInvoicePage() {
       setError("Please select treatment date before generating MC.");
       return;
     }
+    // Pre-populate diagnosis list from current diagnosis
+    const currentDiag = diagnosisCode?.trim();
+    setMcDiagnosisList(currentDiag ? [currentDiag] : []);
+    setMcDiagnosisInput("");
+    setMcReExaminationDate("");
+    setMcFitDutyFrom("");
+    setMcFitDutyTo("");
+    setError("");
+    setIsMcModalOpen(true);
+  };
+
+  const addMcDiagnosis = () => {
+    const next = mcDiagnosisInput.trim();
+    if (!next) return;
+    if (mcDiagnosisList.includes(next)) {
+      setMcDiagnosisInput("");
+      return;
+    }
+    setMcDiagnosisList((prev) => [...prev, next]);
+    setMcDiagnosisInput("");
+  };
+
+  const removeMcDiagnosis = (item: string) => {
+    setMcDiagnosisList((prev) => prev.filter((d) => d !== item));
+  };
+
+  const handleConfirmMcPdf = () => {
+    if (mcDiagnosisList.length === 0) {
+      setError("Please add at least one diagnosis.");
+      return;
+    }
     const generatedMcFile = generateMedicalCertificatePdf({
       clinicName: provider?.providerName || "Clinic",
       clinicAddress: providerAddress,
@@ -1289,15 +1327,19 @@ export default function ProviderInvoicePage() {
       serialNumber: invoiceNumber,
       memberName: matchedMember?.fullName || "N/A",
       memberIdNo: matchedMember?.nricPassport || patientId || "N/A",
-      diagnosis: diagnosisCode || "N/A",
+      diagnoses: mcDiagnosisList,
       mcFrom,
       mcTo,
+      reExaminationDate: mcReExaminationDate || undefined,
+      fitDutyFrom: mcFitDutyFrom || undefined,
+      fitDutyTo: mcFitDutyTo || undefined,
       issueDate: today,
       filename: `mc-${invoiceNumber}.pdf`,
     });
     setMcFile(generatedMcFile);
     setMcFileName(generatedMcFile.name);
     setError("");
+    setIsMcModalOpen(false);
   };
 
   const handleGenerateReferralPdf = () => {
@@ -2327,6 +2369,113 @@ export default function ProviderInvoicePage() {
               </GlassButton>
               <GlassButton className="h-9 px-4 text-sm" onClick={handleConfirmGenerateReferralPdf}>
                 Generate Referral PDF
+              </GlassButton>
+            </div>
+          </GlassCard>
+        </div>
+      )}
+      {isMcModalOpen && (
+        <div className="fixed inset-0 z-[80] bg-slate-900/45 backdrop-blur-sm flex items-center justify-center p-4">
+          <GlassCard className="w-full max-w-xl p-0 overflow-hidden !bg-white border border-slate-200 backdrop-blur-none shadow-2xl">
+            <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50 flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Generate Medical Certificate</h3>
+                <p className="text-sm text-slate-500 mt-0.5">Review and complete MC details before generation.</p>
+              </div>
+              <button
+                type="button"
+                className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600"
+                onClick={() => setIsMcModalOpen(false)}
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Diagnosis</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    className="w-full glass-input px-4 py-2 text-sm"
+                    placeholder="Type diagnosis and click Add..."
+                    value={mcDiagnosisInput}
+                    onChange={(e) => setMcDiagnosisInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addMcDiagnosis(); } }}
+                  />
+                  <GlassButton variant="secondary" className="h-9 px-3 text-xs shrink-0" onClick={addMcDiagnosis}>
+                    Add
+                  </GlassButton>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {mcDiagnosisList.length === 0 ? (
+                    <span className="text-xs text-slate-400">No diagnosis added yet.</span>
+                  ) : (
+                    mcDiagnosisList.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-full text-[11px] font-medium px-2.5 py-1 bg-sky-100 text-sky-700 hover:bg-sky-200"
+                        onClick={() => removeMcDiagnosis(item)}
+                        title="Remove diagnosis"
+                      >
+                        {item}
+                        <span className="text-xs">×</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="h-px bg-slate-200" />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold text-slate-700">Re-examination Date</label>
+                  <input
+                    type="date"
+                    className="w-full glass-input px-4 py-2 text-sm"
+                    value={mcReExaminationDate}
+                    onChange={(e) => setMcReExaminationDate(e.target.value)}
+                  />
+                  <p className="text-[10px] text-slate-400">He/She is advised for re-examination on this date.</p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-semibold text-slate-700">Fit for Light Duty</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-slate-500">From</label>
+                    <input
+                      type="date"
+                      className="w-full glass-input px-4 py-2 text-sm"
+                      value={mcFitDutyFrom}
+                      onChange={(e) => setMcFitDutyFrom(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-slate-500">To</label>
+                    <input
+                      type="date"
+                      className="w-full glass-input px-4 py-2 text-sm"
+                      value={mcFitDutyTo}
+                      onChange={(e) => setMcFitDutyTo(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400">He/She may be fit for light duty during this period.</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-200/70 bg-slate-50 flex justify-end gap-2">
+              <GlassButton
+                variant="ghost"
+                className="h-9 px-4 text-sm"
+                onClick={() => setIsMcModalOpen(false)}
+              >
+                Cancel
+              </GlassButton>
+              <GlassButton className="h-9 px-4 text-sm" onClick={handleConfirmMcPdf}>
+                Generate MC PDF
               </GlassButton>
             </div>
           </GlassCard>

@@ -41,7 +41,7 @@ import type { ImportRowResult } from "@/lib/memberImport/types";
 import type { MemberDirectoryEntry } from "@/lib/memberSession";
 import { downloadText } from "@/lib/download";
 import { validateFamilyRelationshipCaps } from "@/lib/familyRelationshipRules";
-import { buildAddressLine, formatPhoneForDisplay, normalizeName, validateDependentPassport } from "@/lib/formats";
+import { buildAddressLine, formatPhoneForDisplay, joinPhoneNumber, normalizeName, splitPhoneNumber, validateDependentPassport } from "@/lib/formats";
 import { isValidPhone, normalizePhoneInput } from "@/lib/phoneValidation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { withBasePath } from "@/lib/basePath";
@@ -512,6 +512,8 @@ export default function AdminCompanyManagementPage() {
     ? canOperateAdminPage(resolvedAdminRole, "/admin/companies")
     : false;
   const canDeleteCompanies = adminRoleResolved ? canDeleteAdminResource(resolvedAdminRole) : false;
+  const companyPhoneParts = splitPhoneNumber(companyForm.contactPhone);
+  const companyPhoneSecondaryParts = splitPhoneNumber(companyForm.contactPhoneSecondary || "");
   const isCompanyReadOnly = adminRoleResolved
     ? isAdminReadOnly(resolvedAdminRole, "/admin/companies")
     : false;
@@ -1451,14 +1453,37 @@ export default function AdminCompanyManagementPage() {
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-sm font-medium text-slate-700">Contact Number</label>
-                        <div className="relative">
+                        <div className="flex gap-3">
+                          <div className="relative w-28 shrink-0">
+                            <select
+                              className="w-full glass-input px-3 py-2.5 bg-transparent"
+                              value={companyPhoneParts.countryCode}
+                              onChange={(e) =>
+                                setCompanyForm({
+                                  ...companyForm,
+                                  contactPhone: joinPhoneNumber(e.target.value, companyPhoneParts.localNumber),
+                                })
+                              }
+                            >
+                              {DIAL_CODES.map((code) => (
+                                <option key={code} value={code}>
+                                  {code}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                           <input
-                            className="w-full glass-input pl-10 pr-4 py-2.5"
-                            placeholder="+60..."
-                            value={companyForm.contactPhone}
-                            onChange={(e) => setCompanyForm({ ...companyForm, contactPhone: e.target.value })}
+                            type="tel"
+                            className="w-full glass-input px-4 py-2.5"
+                            placeholder="Key in number"
+                            value={companyPhoneParts.localNumber}
+                            onChange={(e) =>
+                              setCompanyForm({
+                                ...companyForm,
+                                contactPhone: joinPhoneNumber(companyPhoneParts.countryCode, e.target.value),
+                              })
+                            }
                           />
-                          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                         </div>
                       </div>
                       <div className="space-y-1.5">
@@ -1475,14 +1500,37 @@ export default function AdminCompanyManagementPage() {
                       </div>
                       <div className="space-y-1.5 md:col-span-2">
                         <label className="text-sm font-medium text-slate-700">Second Contact Number</label>
-                        <div className="relative">
+                        <div className="flex gap-3">
+                          <div className="relative w-28 shrink-0">
+                            <select
+                              className="w-full glass-input px-3 py-2.5 bg-transparent"
+                              value={companyPhoneSecondaryParts.countryCode}
+                              onChange={(e) =>
+                                setCompanyForm({
+                                  ...companyForm,
+                                  contactPhoneSecondary: joinPhoneNumber(e.target.value, companyPhoneSecondaryParts.localNumber),
+                                })
+                              }
+                            >
+                              {DIAL_CODES.map((code) => (
+                                <option key={code} value={code}>
+                                  {code}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                           <input
-                            className="w-full glass-input pl-10 pr-4 py-2.5"
-                            placeholder="+60..."
-                            value={companyForm.contactPhoneSecondary || ""}
-                            onChange={(e) => setCompanyForm({ ...companyForm, contactPhoneSecondary: e.target.value })}
+                            type="tel"
+                            className="w-full glass-input px-4 py-2.5"
+                            placeholder="Key in number"
+                            value={companyPhoneSecondaryParts.localNumber}
+                            onChange={(e) =>
+                              setCompanyForm({
+                                ...companyForm,
+                                contactPhoneSecondary: joinPhoneNumber(companyPhoneSecondaryParts.countryCode, e.target.value),
+                              })
+                            }
                           />
-                          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                         </div>
                       </div>
                     </div>

@@ -2148,7 +2148,7 @@ export default function AdminCompanyManagementPage() {
                   </div>
 
                   {memberForm.planType === "lump_sum" ? (
-                    <div className="rounded-2xl border border-slate-200 p-4 bg-white/70 space-y-3">
+                    <div className="rounded-2xl border border-slate-200 p-4 bg-white/70 space-y-4">
                       <div className="space-y-1.5 md:flex md:items-center md:gap-6 md:space-y-0">
                         <label className="text-sm font-medium text-slate-700 md:w-56 md:shrink-0">Member Lump Sum Limit</label>
                         <input
@@ -2168,6 +2168,47 @@ export default function AdminCompanyManagementPage() {
                       <p className="text-xs text-slate-500">
                         Company default: RM {selectedCompany.planConfig.lumpSumLimit.toLocaleString("en-MY")}
                       </p>
+
+                      <div className="border-t border-slate-200 pt-3">
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Covered Categories</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {Object.entries(selectedCompany.planConfig.categories).map(([key, category]) => {
+                            const selected = memberForm.planSelection?.[key] ?? false;
+                            return (
+                              <div
+                                key={key}
+                                className={`rounded-xl border p-3 transition-all ${
+                                  category.enabled ? "border-slate-200 bg-white/60" : "border-slate-100 bg-slate-50/60 opacity-60"
+                                }`}
+                              >
+                                <label className="flex items-start gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={selected}
+                                    disabled={!category.enabled}
+                                    onChange={() =>
+                                      setMemberForm((prev) => ({
+                                        ...prev,
+                                        planSelection: {
+                                          ...prev.planSelection,
+                                          [key]: !selected,
+                                        },
+                                      }))
+                                    }
+                                    className="mt-0.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                  />
+                                  <div>
+                                    <div className="text-sm font-semibold text-slate-700">{category.label}</div>
+                                    <div className="text-xs text-slate-500">
+                                      {category.enabled ? "Covered under lump sum" : "Not enabled in company plan"}
+                                    </div>
+                                  </div>
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2467,23 +2508,39 @@ export default function AdminCompanyManagementPage() {
                           <div className="rounded-xl border border-purple-200 bg-purple-50/70 p-4 space-y-3">
                             <p className="text-sm font-semibold text-slate-800">Dependent Allocation</p>
                             {memberForm.planType === "lump_sum" ? (
-                              <div className="space-y-1.5 md:flex md:items-center md:gap-6 md:space-y-0">
-                                <label className="text-sm font-medium text-slate-700 md:w-56 md:shrink-0">Allocated Lump Sum Amount</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  className="w-full md:w-56 glass-input px-4 py-2.5"
-                                  value={dependent.lumpSumLimit}
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    setMemberForm((prev) => ({
-                                      ...prev,
-                                      dependents: prev.dependents.map((item, i) =>
-                                        i === index ? { ...item, lumpSumLimit: raw === "" ? "" : Number(raw) } : item
-                                      ),
-                                    }));
-                                  }}
-                                />
+                              <div className="space-y-4">
+                                <div className="space-y-1.5 md:flex md:items-center md:gap-6 md:space-y-0">
+                                  <label className="text-sm font-medium text-slate-700 md:w-56 md:shrink-0">Allocated Lump Sum Amount</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    className="w-full md:w-56 glass-input px-4 py-2.5"
+                                    value={dependent.lumpSumLimit}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      setMemberForm((prev) => ({
+                                        ...prev,
+                                        dependents: prev.dependents.map((item, i) =>
+                                          i === index ? { ...item, lumpSumLimit: raw === "" ? "" : Number(raw) } : item
+                                        ),
+                                      }));
+                                    }}
+                                  />
+                                </div>
+                                <div className="border-t border-purple-200 pt-3">
+                                  <p className="text-xs font-bold text-purple-700 uppercase tracking-wider mb-2">Covered Categories</p>
+                                  <div className="grid grid-cols-1 gap-2">
+                                    {Object.entries(selectedCompany.planConfig.categories).map(([key, category]) => {
+                                      const selected = memberForm.planSelection?.[key] ?? false;
+                                      return (
+                                        <label key={key} className={`flex items-center gap-2 text-xs ${category.enabled ? "text-slate-600" : "text-slate-400"}`}>
+                                          <span className={selected ? "text-emerald-600" : "text-slate-300"}>{selected ? "✓" : "—"}</span>
+                                          {category.label}
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
                               </div>
                             ) : (
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

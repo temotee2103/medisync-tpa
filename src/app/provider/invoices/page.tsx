@@ -1620,19 +1620,20 @@ export default function ProviderInvoicePage() {
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Clinical Details</h4>
                 <GlassField label="Diagnosis" className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <select
-                      className="w-full glass-select px-4 py-2"
+                    <input
+                      type="text"
+                      className="w-full glass-input px-4 py-2"
+                      placeholder="Type or select diagnosis..."
                       value={diagnosisToAdd}
                       onChange={(e) => setDiagnosisToAdd(e.target.value)}
                       disabled={!canEditClinicalFields}
-                    >
-                      <option value="">Select diagnosis</option>
+                      list="diagnosis-datalist"
+                    />
+                    <datalist id="diagnosis-datalist">
                       {diagnosisOptions.map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
+                        <option key={item} value={item} />
                       ))}
-                    </select>
+                    </datalist>
                     <GlassButton
                       variant="secondary"
                       className="h-9 px-3 text-xs"

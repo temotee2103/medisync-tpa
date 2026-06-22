@@ -10,6 +10,7 @@ import {
   LogOut, 
   Menu,
   X,
+  Lock as LockIcon,
   Briefcase,
   Building2,
   Stethoscope,
@@ -147,7 +148,14 @@ export default function AdminLayout({
           })}
         </nav>
 
-        <div className="p-4 border-t border-white/30">
+        <div className="p-4 border-t border-white/30 space-y-2">
+          <Link
+            href="/admin/change-password"
+            className="flex items-center gap-3 w-full px-4 py-3 text-sm font-medium text-slate-600 hover:bg-white/50 hover:text-sky-600 rounded-xl transition-colors"
+          >
+            <LockIcon className="w-5 h-5" />
+            Change Password
+          </Link>
           <button
             className="flex items-center gap-3 w-full px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
             onClick={async () => {
@@ -199,6 +207,29 @@ export default function AdminLayout({
                   </Link>
                 );
               })}
+              <Link
+                href="/admin/change-password"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 hover:bg-slate-50"
+              >
+                <LockIcon className="w-5 h-5" />
+                Change Password
+              </Link>
+              <button
+                className="flex items-center gap-3 w-full px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl"
+                onClick={async () => {
+                  try {
+                    resetSharedClientState();
+                    await fetch(withBasePath("/api/auth/logout"), { method: "POST" });
+                    createSupabaseBrowserClient().auth.signOut();
+                  } finally {
+                    router.replace("/admin/login");
+                  }
+                }}
+              >
+                <LogOut className="w-5 h-5" />
+                Sign Out
+              </button>
             </nav>
           </div>
         )}

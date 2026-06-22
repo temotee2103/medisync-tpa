@@ -207,6 +207,7 @@ export default function VendorManagementPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isVendorModalOpen, setIsVendorModalOpen] = useState(false);
   const [editingVendorId, setEditingVendorId] = useState<string | null>(null);
+  const [vendorFormError, setVendorFormError] = useState("");
   const [vendorModalView, setVendorModalView] = useState<"details" | "info">("details");
   const [isComplianceModalOpen, setIsComplianceModalOpen] = useState(false);
   const [complianceVendorId, setComplianceVendorId] = useState("");
@@ -794,11 +795,13 @@ export default function VendorManagementPage() {
                       <div className="relative">
                         <input
                           type="text"
-                          className="w-full glass-input pl-10 pr-4 py-2.5"
+                          className={`w-full glass-input pl-10 pr-4 py-2.5 ${editingVendorId ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""}`}
                           placeholder="VND-0003"
                           value={vendorForm.vendorId}
                           onChange={(e) => setVendorForm({ ...vendorForm, vendorId: e.target.value })}
                           required
+                          disabled={!!editingVendorId}
+                          title={editingVendorId ? "Vendor ID cannot be changed when editing." : ""}
                         />
                         <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                       </div>
@@ -1023,12 +1026,18 @@ export default function VendorManagementPage() {
             </div>
 
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
+              {vendorFormError && (
+                <p className={`mr-auto text-xs font-medium self-center ${vendorFormError.includes("successfully") ? "text-emerald-600" : "text-red-500"}`}>
+                  {vendorFormError}
+                </p>
+              )}
               <GlassButton
                 variant="secondary"
                 onClick={() => {
                   setIsVendorModalOpen(false);
                   setEditingVendorId(null);
                   setVendorModalView("details");
+                  setVendorFormError("");
                 }}
               >
                 Cancel
@@ -1038,33 +1047,48 @@ export default function VendorManagementPage() {
                   disabled={disableVendorEditing}
                   onClick={async () => {
                     if (disableVendorEditing) return;
-                    if (!vendorForm.vendorId || !vendorForm.providerName) return;
-                    await fetch(withBasePath("/api/admin/providers/upsert"), {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        vendorId: vendorForm.vendorId,
-                        providerName: vendorForm.providerName,
-                        status: vendorForm.status === "Disabled" ? "disabled" : "active",
-                        contactEmail: vendorForm.contactEmail || undefined,
-                        contactPhone: normalizePhone(vendorForm.contactPhone) || undefined,
-                        addressLine1: vendorForm.addressLine1 || undefined,
-                        addressLine2: vendorForm.addressLine2 || undefined,
-                        city: vendorForm.city || undefined,
-                        state: vendorForm.state || undefined,
-                        postalCode: vendorForm.postalCode || undefined,
-                        complianceStatus: vendorForm.complianceStatus || undefined,
-                      }),
-                    });
-                    await refreshProviderDirectorySnapshot();
-                    await refreshProviderCredentialsSnapshot();
-                    await refreshVendorMembersSnapshot();
-                    setSelectedVendorId(vendorForm.vendorId);
-                    setMemberRefreshVersion((prev) => prev + 1);
-                    setVendorForm(createEmptyVendorForm());
-                    setEditingVendorId(null);
-                    setVendorModalView("details");
-                    setIsVendorModalOpen(false);
+                    if (!vendorForm.vendorId || !vendorForm.providerName) {
+                      setVendorFormError("Please complete Vendor ID and Provider Name.");
+                      return;
+                    }
+                    const isEditing = Boolean(editingVendorId);
+                    setVendorFormError("");
+                    try {
+                      const res = await fetch(withBasePath("/api/admin/providers/upsert"), {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          vendorId: vendorForm.vendorId,
+                          providerName: vendorForm.providerName,
+                          status: vendorForm.status === "Disabled" ? "disabled" : "active",
+                          contactEmail: vendorForm.contactEmail || undefined,
+                          contactPhone: normalizePhone(vendorForm.contactPhone) || undefined,
+                          addressLine1: vendorForm.addressLine1 || undefined,
+                          addressLine2: vendorForm.addressLine2 || undefined,
+                          city: vendorForm.city || undefined,
+                          state: vendorForm.state || undefined,
+                          postalCode: vendorForm.postalCode || undefined,
+                          complianceStatus: vendorForm.complianceStatus || undefined,
+                        }),
+                      });
+                      const payload = await res.json();
+                      if (!res.ok) throw new Error(payload.error || "Failed to save vendor.");
+                      await refreshProviderDirectorySnapshot();
+                      await refreshProviderCredentialsSnapshot();
+                      await refreshVendorMembersSnapshot();
+                      setSelectedVendorId(vendorForm.vendorId);
+                      setMemberRefreshVersion((prev) => prev + 1);
+                      setVendorFormError(`${isEditing ? "Updated" : "Created"} successfully ✓`);
+                      setTimeout(() => {
+                        setVendorForm(createEmptyVendorForm());
+                        setEditingVendorId(null);
+                        setVendorModalView("details");
+                        setVendorFormError("");
+                        setIsVendorModalOpen(false);
+                      }, 1200);
+                    } catch (error) {
+                      setVendorFormError(error instanceof Error ? error.message : "Failed to save vendor.");
+                    }
                   }}
                 >
                   {isVendorAccessPending ? "Checking Access..." : editingVendorId ? "Update Vendor" : "Save Vendor"}

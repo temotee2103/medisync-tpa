@@ -1255,11 +1255,13 @@ export default function AdminCompanyManagementPage() {
                         <label className="text-sm font-medium text-slate-700">Company ID <span className="text-red-500">*</span></label>
                         <div className="relative">
                           <input
-                            className="w-full glass-input pl-10 pr-4 py-2.5"
+                            className={`w-full glass-input pl-10 pr-4 py-2.5 ${editingCompanyId ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""}`}
                             placeholder="CMP-001"
                             value={companyForm.companyId}
                             onChange={(e) => setCompanyForm({ ...companyForm, companyId: e.target.value })}
                             required
+                            disabled={!!editingCompanyId}
+                            title={editingCompanyId ? "Company ID cannot be changed when editing." : ""}
                           />
                           <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                         </div>
@@ -1746,7 +1748,11 @@ export default function AdminCompanyManagementPage() {
             </div>
 
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
-              {companyFormError && <p className="mr-auto text-xs text-red-500 font-medium self-center">{companyFormError}</p>}
+              {companyFormError && (
+                <p className={`mr-auto text-xs font-medium self-center ${companyFormError.includes("successfully") ? "text-emerald-600" : "text-red-500"}`}>
+                  {companyFormError}
+                </p>
+              )}
               <GlassButton
                 variant="secondary"
                 onClick={() => {
@@ -1814,15 +1820,20 @@ export default function AdminCompanyManagementPage() {
                         "companies",
                         normalizedCompany.companyId
                       );
+                      // Show success feedback before closing
+                      setCompanyFormError(`${isEditing ? "Updated" : "Created"} successfully ✓`);
+                      setTimeout(() => {
+                        setCompanyForm(createEmptyCompanyForm());
+                        setEditingCompanyId(null);
+                        setCompanyModalView("details");
+                        setCompanyFormError("");
+                        setIsCompanyModalOpen(false);
+                      }, 1200);
+                      return;
                     } catch (error) {
-                      alert(normalizeSupabaseErrorMessage(error, "Failed to save company."));
+                      setCompanyFormError(normalizeSupabaseErrorMessage(error, "Failed to save company."));
                       return;
                     }
-                    setCompanyForm(createEmptyCompanyForm());
-                    setEditingCompanyId(null);
-                    setCompanyModalView("details");
-                    setCompanyFormError("");
-                    setIsCompanyModalOpen(false);
                   }}
                 >
                   {isCompanyAccessPending ? "Checking Access..." : editingCompanyId ? "Update Company" : "Save Company"}

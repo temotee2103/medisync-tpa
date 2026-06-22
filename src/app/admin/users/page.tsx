@@ -1605,8 +1605,8 @@ function UserManagementPageContent() {
                   </div>
                 </MobileRecordCard>
               ))}
-              {isUsersDataLoading && <div className="py-6 text-center text-sm text-slate-400">Loading corporate members...</div>}
-              {!isUsersDataLoading && filteredCorporateMembers.length === 0 && <div className="py-6 text-center text-sm text-slate-400">No corporate members yet.</div>}
+              {isUsersDataLoading && <GlassCard className="p-6 text-center text-sm text-slate-400">Loading corporate members...</GlassCard>}
+              {!isUsersDataLoading && filteredCorporateMembers.length === 0 && <GlassCard className="p-6 text-center text-sm text-slate-400">No corporate members yet.</GlassCard>}
             </div>}
           />
         </GlassCard>
@@ -1758,8 +1758,8 @@ function UserManagementPageContent() {
                   </div>
                 </MobileRecordCard>
               ))}
-              {isUsersDataLoading && <div className="py-6 text-center text-sm text-slate-400">Loading vendor members...</div>}
-              {!isUsersDataLoading && filteredVendorMembers.length === 0 && <div className="py-6 text-center text-sm text-slate-400">No vendor members yet.</div>}
+              {isUsersDataLoading && <GlassCard className="p-6 text-center text-sm text-slate-400">Loading vendor members...</GlassCard>}
+              {!isUsersDataLoading && filteredVendorMembers.length === 0 && <GlassCard className="p-6 text-center text-sm text-slate-400">No vendor members yet.</GlassCard>}
             </div>}
           />
         </GlassCard>

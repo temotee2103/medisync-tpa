@@ -555,9 +555,9 @@ export default function ReportsPage() {
                         <td className="px-4 py-3">
                           <span className={cn(
                             "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
-                            log.status === "Approved" ? "bg-emerald-100 text-emerald-600" :
-                            log.status === "Rejected" ? "bg-rose-100 text-rose-600" :
-                            "bg-amber-100 text-amber-600"
+                            log.status === "Approved" ? "bg-emerald-100 text-emerald-700" :
+                            log.status === "Rejected" ? "bg-rose-100 text-rose-700" :
+                            "bg-amber-100 text-amber-700"
                           )}>
                             {log.status}
                           </span>
@@ -586,9 +586,9 @@ export default function ReportsPage() {
                     badge={
                       <span className={cn(
                         "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
-                        log.status === "Approved" ? "bg-emerald-100 text-emerald-600" :
-                        log.status === "Rejected" ? "bg-rose-100 text-rose-600" :
-                        "bg-amber-100 text-amber-600"
+                        log.status === "Approved" ? "bg-emerald-100 text-emerald-700" :
+                        log.status === "Rejected" ? "bg-rose-100 text-rose-700" :
+                        "bg-amber-100 text-amber-700"
                       )}>
                         {log.status}
                       </span>
@@ -597,7 +597,7 @@ export default function ReportsPage() {
                   />
                 ))}
                 {!isReportsLoading && payoutLog.length === 0 && (
-                  <p className="text-sm text-slate-500 text-center py-6">No approved payout records are available for the current filters.</p>
+                  <GlassCard className="p-6 text-center text-sm text-slate-400">No approved payout records are available for the current filters.</GlassCard>
                 )}
               </div>
             }

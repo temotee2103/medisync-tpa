@@ -322,7 +322,7 @@ export default function PolicySearchPage() {
                       badge={
                         <span className={cn(
                           "text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full",
-                          policy.status === 'Active' ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                          policy.status === 'Active' ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
                         )}>
                           {policy.status}
                         </span>
@@ -337,7 +337,7 @@ export default function PolicySearchPage() {
                       }
                       footer={
                         <div className="flex justify-end gap-2">
-                          <GlassButton variant="secondary" className="h-9 w-9 p-0" title="Info" onClick={() => openPolicyInfo(policy)}>
+                          <GlassButton variant="ghost" className="h-9 w-9 p-0" title="Info" onClick={() => openPolicyInfo(policy)}>
                             <Info className="w-4 h-4" />
                           </GlassButton>
                           <GlassButton variant="ghost" className="h-9 w-9 p-0" title="Adjust Plan" onClick={() => openPolicyEdit(policy)}>
@@ -348,7 +348,7 @@ export default function PolicySearchPage() {
                     />
                   ))}
                   {filteredPolicies.length === 0 && (
-                    <div className="text-center text-slate-400 py-8 text-sm italic">No members found.</div>
+                    <GlassCard className="p-6 text-center text-sm text-slate-400">No members found.</GlassCard>
                   )}
                 </div>
               }

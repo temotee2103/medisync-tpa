@@ -382,10 +382,10 @@ export default function CatalogPanel({ catalogType }: Props) {
                   <td className="px-4 py-3">
                     <span
                       className={cn(
-                        "px-2 py-1 rounded-full text-[10px] font-bold uppercase border",
+                        "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
                         item.status === "Active"
-                          ? "bg-emerald-50 text-emerald-600 border-emerald-100"
-                          : "bg-slate-50 text-slate-400 border-slate-100"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-slate-100 text-slate-500"
                       )}
                     >
                       {item.status}
@@ -393,13 +393,14 @@ export default function CatalogPanel({ catalogType }: Props) {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-2">
-                      <button
-                        className="px-3 py-1.5 text-xs rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700"
+                      <GlassButton
+                        variant="ghost"
+                        size="sm"
                         onClick={() => void toggleStatus(item)}
                         disabled={isCatalogReadOnly || loading}
                       >
                         {item.status === "Active" ? "Deactivate" : "Activate"}
-                      </button>
+                      </GlassButton>
                     </div>
                   </td>
                 </tr>
@@ -436,10 +437,10 @@ export default function CatalogPanel({ catalogType }: Props) {
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span
                       className={cn(
-                        "px-2 py-1 rounded-full text-[10px] font-bold uppercase border",
+                        "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
                         item.status === "Active"
-                          ? "bg-emerald-50 text-emerald-600 border-emerald-100"
-                          : "bg-slate-50 text-slate-400 border-slate-100"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-slate-100 text-slate-500"
                       )}
                     >
                       {item.status}
@@ -447,13 +448,14 @@ export default function CatalogPanel({ catalogType }: Props) {
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <div className="flex justify-end gap-2">
-                      <button
-                        className="px-3 py-1.5 text-xs rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700"
+                      <GlassButton
+                        variant="ghost"
+                        size="sm"
                         onClick={() => void toggleStatus(item)}
                         disabled={isCatalogReadOnly || loading}
                       >
                         {item.status === "Active" ? "Deactivate" : "Activate"}
-                      </button>
+                      </GlassButton>
                     </div>
                   </td>
                 </tr>

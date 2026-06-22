@@ -1227,9 +1227,7 @@ export default function ProviderInvoicePage() {
 
   const addChargeItem = (sectionKey: string) => {
     if (!isSectionAllowed(serviceType, sectionKey as CatalogSection)) return;
-    const selected = (chargePickerDraft[sectionKey] || "").trim();
-    const custom = (chargeCustomDraft[sectionKey] || "").trim();
-    const next = selected || custom;
+    const next = (chargePickerDraft[sectionKey] || "").trim();
     if (!next) return;
     setSelectedChargeItems((prev) => {
       const existing = prev[sectionKey] || [];
@@ -1808,13 +1806,15 @@ export default function ProviderInvoicePage() {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-[180px_1fr_1fr_auto] gap-3 items-center">
+                      <div className="grid grid-cols-1 md:grid-cols-[180px_1fr_auto] gap-3 items-center">
                         <label className="text-xs font-medium text-slate-600">{section.pickerLabel}</label>
-                        <select
+                        <input
+                          type="text"
                           className={cn(
-                            "w-full glass-select px-3 py-2 text-sm",
+                            "w-full glass-input px-3 py-2 text-sm",
                             canEditClinicalFields ? "bg-white" : "bg-slate-50 text-slate-600 cursor-not-allowed"
                           )}
+                          placeholder={`Type or select ${section.pickerLabel.toLowerCase()}...`}
                           value={chargePickerDraft[section.key] || ""}
                           onChange={canEditClinicalFields
                             ? (e) =>
@@ -1823,37 +1823,14 @@ export default function ProviderInvoicePage() {
                                   [section.key]: e.target.value,
                                 }))
                             : undefined}
-                          disabled={!canEditClinicalFields}
-                        >
-                          <option value="">Select {section.pickerLabel.toLowerCase()}</option>
-                          {section.options.length === 0 ? (
-                            <option value="" disabled>
-                              No catalog items
-                            </option>
-                          ) : null}
-                          {section.options.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="text"
-                          className={cn(
-                            "w-full glass-input px-3 py-2 text-sm",
-                            canEditClinicalFields ? "bg-white" : "bg-slate-50 text-slate-600 cursor-not-allowed"
-                          )}
-                          placeholder={`Other ${section.pickerLabel.toLowerCase()}`}
-                          value={chargeCustomDraft[section.key] || ""}
-                          onChange={canEditClinicalFields
-                            ? (e) =>
-                                setChargeCustomDraft((prev) => ({
-                                  ...prev,
-                                  [section.key]: e.target.value,
-                                }))
-                            : undefined}
                           readOnly={!canEditClinicalFields}
+                          list={`datalist-${section.key}`}
                         />
+                        <datalist id={`datalist-${section.key}`}>
+                          {section.options.map((option) => (
+                            <option key={option} value={option} />
+                          ))}
+                        </datalist>
                         <GlassButton
                           variant="secondary"
                           className="h-9 px-3 text-xs"
@@ -1931,11 +1908,13 @@ export default function ProviderInvoicePage() {
                                       : undefined}
                                     readOnly={!canEditClinicalFields}
                                   />
-                                  <select
+                                  <input
+                                    type="text"
                                     className={cn(
-                                      "w-full glass-select px-2 py-1.5 text-sm",
+                                      "w-full glass-input px-2 py-1.5 text-sm",
                                       canEditClinicalFields ? "bg-white" : "bg-slate-50 text-slate-600 cursor-not-allowed"
                                     )}
+                                    placeholder="Unit"
                                     value={meta.unit}
                                     onChange={canEditClinicalFields
                                       ? (e) => {
@@ -1949,20 +1928,21 @@ export default function ProviderInvoicePage() {
                                           }));
                                         }
                                       : undefined}
-                                    disabled={!canEditClinicalFields}
-                                  >
-                                    <option value="">Select unit</option>
+                                    readOnly={!canEditClinicalFields}
+                                    list={`datalist-units-${item}`}
+                                  />
+                                  <datalist id={`datalist-units-${item}`}>
                                     {unitOptions.map((opt) => (
-                                      <option key={opt} value={opt}>
-                                        {opt}
-                                      </option>
+                                      <option key={opt} value={opt} />
                                     ))}
-                                  </select>
-                                  <select
+                                  </datalist>
+                                  <input
+                                    type="text"
                                     className={cn(
-                                      "w-full glass-select px-2 py-1.5 text-sm",
+                                      "w-full glass-input px-2 py-1.5 text-sm",
                                       canEditClinicalFields ? "bg-white" : "bg-slate-50 text-slate-600 cursor-not-allowed"
                                     )}
+                                    placeholder="Frequency"
                                     value={meta.frequency}
                                     onChange={canEditClinicalFields
                                       ? (e) => {
@@ -1976,15 +1956,14 @@ export default function ProviderInvoicePage() {
                                           }));
                                         }
                                       : undefined}
-                                    disabled={!canEditClinicalFields}
-                                  >
-                                    <option value="">Select frequency</option>
+                                    readOnly={!canEditClinicalFields}
+                                    list={`datalist-freqs-${item}`}
+                                  />
+                                  <datalist id={`datalist-freqs-${item}`}>
                                     {frequencyOptions.map((opt) => (
-                                      <option key={opt} value={opt}>
-                                        {opt}
-                                      </option>
+                                      <option key={opt} value={opt} />
                                     ))}
-                                  </select>
+                                  </datalist>
                                 </div>
                               );
                             })}

@@ -59,6 +59,10 @@ const titleByType: Record<CatalogType, { title: string; subtitle: string }> = {
     title: "Investigation Catalog",
     subtitle: "Manage investigation dropdown items (full + short label) used by provider claims.",
   },
+  diagnoses: {
+    title: "Diagnosis Catalog",
+    subtitle: "Manage diagnosis dropdown items used by provider claims and MC generation.",
+  },
   frequencies: {
     title: "Frequency Catalog",
     subtitle: "Manage frequency dropdown items used by provider claims.",

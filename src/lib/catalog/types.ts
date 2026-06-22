@@ -5,6 +5,7 @@ export type CatalogType =
   | "injections"
   | "immunizations"
   | "investigations"
+  | "diagnoses"
   | "frequencies"
   | "units";
 

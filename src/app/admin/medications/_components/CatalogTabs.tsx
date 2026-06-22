@@ -8,6 +8,7 @@ const tabs: Array<{ key: CatalogType; label: string }> = [
   { key: "injections", label: "Injections" },
   { key: "immunizations", label: "Immunizations" },
   { key: "investigations", label: "Investigations" },
+  { key: "diagnoses", label: "Diagnosis" },
   { key: "frequencies", label: "Frequency" },
   { key: "units", label: "Units" },
 ];

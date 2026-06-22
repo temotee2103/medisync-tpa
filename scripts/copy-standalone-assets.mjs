@@ -20,3 +20,10 @@ if (existsSync(publicSrc)) {
   cpSync(publicSrc, publicDst, { recursive: true, force: true });
   process.stdout.write("Copied public/ → .next/standalone/public\n");
 }
+
+const envSrc = join(root, ".env");
+const envDst = join(root, ".next", "standalone", ".env");
+if (existsSync(envSrc)) {
+  cpSync(envSrc, envDst, { force: true });
+  process.stdout.write("Copied .env → .next/standalone/.env\n");
+}

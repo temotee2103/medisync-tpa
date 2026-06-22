@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import Image from "next/image";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { withBasePath } from "@/lib/basePath";
 
 export default function MemberQrPage() {
   const [error, setError] = useState("");
@@ -14,7 +15,7 @@ export default function MemberQrPage() {
 
   const refresh = useCallback(async () => {
     setError("");
-    const res = await fetch("/api/member/qr-token", { cache: "no-store" });
+    const res = await fetch(withBasePath("/api/member/qr-token"), { cache: "no-store" });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) {
       setError(json?.error || "Failed to generate QR.");

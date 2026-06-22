@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
+import { withBasePath } from "@/lib/basePath";
 import { downloadText } from "@/lib/download";
 import Link from "next/link";
 import { ensureCompaniesStore, getCompaniesServerSnapshot, getCompaniesSnapshot, subscribeCompanies } from "@/lib/companyStore";
@@ -176,7 +177,7 @@ export default function MemberVerificationPage() {
                       setIsSearching(true);
                       setError("");
                       try {
-                        const res = await fetch("/api/provider/qr/resolve", {
+                        const res = await fetch(withBasePath("/api/provider/qr/resolve"), {
                           method: "POST",
                           headers: { "content-type": "application/json" },
                           body: JSON.stringify({ token: text }),

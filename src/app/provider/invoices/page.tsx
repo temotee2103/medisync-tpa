@@ -56,6 +56,7 @@ import {
 import { getCategoryLimit, getMemberLimitOwnerStaffId, resolveMemberPlan } from "@/lib/memberPlan";
 import { formatCurrency } from "@/lib/formats";
 import { cn } from "@/lib/utils";
+import { withBasePath } from "@/lib/basePath";
 import { generateMedicalCertificatePdf, generateReferralLetterPdf } from "@/lib/providerDocuments";
 import { getLimitLocks, getUtilizations, releaseReservation, reserveLimit } from "@/lib/entitlementStore";
 import { fetchCatalogItemRows, fetchCatalogItems } from "@/lib/catalog/supabase";
@@ -2391,7 +2392,7 @@ export default function ProviderInvoicePage() {
                 onResult={async (text) => {
                   setScanError("");
                   try {
-                    const res = await fetch("/api/provider/qr/resolve", {
+                    const res = await fetch(withBasePath("/api/provider/qr/resolve"), {
                       method: "POST",
                       headers: { "content-type": "application/json" },
                       body: JSON.stringify({ token: text }),

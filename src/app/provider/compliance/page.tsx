@@ -286,14 +286,18 @@ export default function CompliancePage() {
   const submitDocUpload = async (docType: string) => {
     if (!session?.vendorId) return;
     const upload = docUploads[docType];
-    if (!upload?.fileName || !upload?.expiryDate) return;
+    if (!upload?.fileName || !upload?.expiryDate) {
+      setDocUploadField(docType, "error", "Please select a file and enter the expiry date.");
+      return;
+    }
+    setDocUploadField(docType, "error", "");
     try {
       await insertProviderCredential({ vendorId: session.vendorId, docType: docType as ProviderCredentialDocType, providerUserId: null, fileName: upload.fileName, fileDataUrl: upload.fileDataUrl, fileMimeType: upload.fileMimeType, expiryDate: upload.expiryDate, submittedBy: "vendor" });
       setDocUploadField(docType, "fileName", "");
       setDocUploadField(docType, "fileDataUrl", "");
       setDocUploadField(docType, "fileMimeType", "");
       setDocUploadField(docType, "expiryDate", "");
-      setDocUploadField(docType, "error", "");
+      setDocUploadField(docType, "error", "✓ Submitted successfully — pending admin review.");
     } catch { setDocUploadField(docType, "error", "Upload failed. Please try again."); }
   };
 
@@ -467,7 +471,7 @@ export default function CompliancePage() {
                   </GlassButton>
                 </div>
                 {uploadState.error ? (
-                  <p className="mt-3 text-xs text-red-600">{uploadState.error}</p>
+                  <p className={uploadState.error.startsWith("✓") ? "mt-3 text-xs text-emerald-600 font-medium" : "mt-3 text-xs text-red-600"}>{uploadState.error}</p>
                 ) : null}
                 {!canManageClinicLicense ? (
                   <p className="mt-3 text-xs text-slate-500">
@@ -588,7 +592,11 @@ export default function CompliancePage() {
               <GlassButton
                 disabled={!canUploadApc}
                 onClick={async () => {
-                  if (!session?.vendorId || !selectedApcDoctorId || !apcUpload.fileName || !apcUpload.expiryDate) return;
+                  if (!session?.vendorId || !selectedApcDoctorId || !apcUpload.fileName || !apcUpload.expiryDate) {
+                    setApcUploadError("Please select a doctor, file, and expiry date.");
+                    return;
+                  }
+                  setApcUploadError("");
                   try {
                     await submitVendorDoctorApc(session.vendorId, {
                       providerUserId: selectedApcDoctorId,
@@ -605,7 +613,7 @@ export default function CompliancePage() {
                       fileMimeType: "",
                       expiryDate: "",
                     });
-                    setApcUploadError("");
+                    setApcUploadError("✓ APC submitted successfully — pending admin review.");
                   } catch {
                     setApcUploadError("Upload failed. Please try again.");
                   }
@@ -615,7 +623,7 @@ export default function CompliancePage() {
               </GlassButton>
             </div>
             {apcUploadError ? (
-              <p className="mt-3 text-xs text-red-600">{apcUploadError}</p>
+              <p className={apcUploadError.startsWith("✓") ? "mt-3 text-xs text-emerald-600 font-medium" : "mt-3 text-xs text-red-600"}>{apcUploadError}</p>
             ) : null}
             {currentUserRole === "doctor" ? (
               <p className="mt-3 text-xs text-slate-500">

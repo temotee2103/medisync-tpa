@@ -138,29 +138,39 @@ function BarChart({
 }) {
   if (data.length === 0) return <p className="text-sm text-slate-400 py-8 text-center">No data available.</p>;
   const maxCount = Math.max(...data.map((d) => d.count), 1);
-  const BAR_H = 28;
-  const LABEL_W = 170;
-  const BAR_AREA_W = 300;
-  const CHART_W = LABEL_W + BAR_AREA_W + 40;
+  const BAR_H = 26;
+  const LABEL_W = 144;
+  const BAR_MAX = 210;
   const GAP = 10;
+  const CHART_W = LABEL_W + BAR_MAX + 52; // room for count + % after bar
 
   const truncate = (text: string, maxChars: number) =>
     text.length > maxChars ? text.slice(0, maxChars - 1) + "…" : text;
 
   return (
-    <svg width="100%" height={data.length * (BAR_H + GAP) + 8} viewBox={`0 0 ${CHART_W} ${data.length * (BAR_H + GAP) + 8}`} className="text-xs overflow-visible">
+    <svg width="100%" height={data.length * (BAR_H + GAP) + 8} viewBox={`0 0 ${CHART_W} ${data.length * (BAR_H + GAP) + 8}`}>
       {data.map((item, i) => {
         const y = i * (BAR_H + GAP);
-        const w = Math.max((item.count / maxCount) * BAR_AREA_W, 12);
+        const w = Math.max((item.count / maxCount) * BAR_MAX, 8);
         return (
           <g key={i}>
-            <text x={0} y={y + BAR_H / 2 + 4} fill="#475569" fontSize="12" fontWeight="500">
+            <text x={0} y={y + BAR_H / 2 + 5} fill="#475569" fontSize="12" fontWeight="500">
               <title>{item.name}</title>
-              {truncate(item.name, 26)}
+              {truncate(item.name, 22)}
             </text>
-            <rect x={LABEL_W + 4} y={y} width={w} height={BAR_H} rx="5" fill="#0ea5e9" opacity="0.8" />
-            <text x={LABEL_W + 4 + w + 8} y={y + BAR_H / 2 + 4} fill="#64748b" fontSize="11">
-              {item.count} {valueLabel} ({item.percentage}%)
+            <rect x={LABEL_W} y={y} width={w} height={BAR_H} rx="5" fill="#0ea5e9" opacity="0.85" />
+            <text
+              x={w > 40 ? LABEL_W + w - 8 : LABEL_W + w + 6}
+              y={y + BAR_H / 2 + 5}
+              fill={w > 40 ? "#ffffff" : "#0ea5e9"}
+              fontSize="11"
+              fontWeight="600"
+              textAnchor={w > 40 ? "end" : "start"}
+            >
+              {item.count}
+            </text>
+            <text x={LABEL_W + BAR_MAX + 10} y={y + BAR_H / 2 + 5} fill="#94a3b8" fontSize="11">
+              {item.percentage}%
             </text>
           </g>
         );

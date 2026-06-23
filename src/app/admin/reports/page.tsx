@@ -122,8 +122,8 @@ function DonutChart({
           className="transition-all duration-700"
         />
       ))}
-      <text x={SIZE / 2} y={SIZE / 2 - 8} textAnchor="middle" className="fill-slate-400 text-[10px] font-semibold uppercase tracking-wider">{totalLabel}</text>
-      <text x={SIZE / 2} y={SIZE / 2 + 12} textAnchor="middle" className="fill-slate-800 text-sm font-bold">{totalValue}</text>
+      <text x={SIZE / 2} y={SIZE / 2 - 8} textAnchor="middle" fill="#94a3b8" fontSize="10" fontWeight="600" letterSpacing="0.05em">{totalLabel}</text>
+      <text x={SIZE / 2} y={SIZE / 2 + 12} textAnchor="middle" fill="#1e293b" fontSize="14" fontWeight="700">{totalValue}</text>
     </svg>
   );
 }
@@ -139,19 +139,29 @@ function BarChart({
   if (data.length === 0) return <p className="text-sm text-slate-400 py-8 text-center">No data available.</p>;
   const maxCount = Math.max(...data.map((d) => d.count), 1);
   const BAR_H = 28;
-  const CHART_W = 320;
-  const PADDING = 120;
+  const LABEL_W = 170;
+  const BAR_AREA_W = 300;
+  const CHART_W = LABEL_W + BAR_AREA_W + 40;
+  const GAP = 10;
+
+  const truncate = (text: string, maxChars: number) =>
+    text.length > maxChars ? text.slice(0, maxChars - 1) + "…" : text;
 
   return (
-    <svg width="100%" height={data.length * (BAR_H + 8) + 4} viewBox={`0 0 ${CHART_W} ${data.length * (BAR_H + 8) + 4}`} className="text-xs">
+    <svg width="100%" height={data.length * (BAR_H + GAP) + 8} viewBox={`0 0 ${CHART_W} ${data.length * (BAR_H + GAP) + 8}`} className="text-xs overflow-visible">
       {data.map((item, i) => {
-        const y = i * (BAR_H + 8);
-        const w = (item.count / maxCount) * (CHART_W - PADDING);
+        const y = i * (BAR_H + GAP);
+        const w = Math.max((item.count / maxCount) * BAR_AREA_W, 12);
         return (
           <g key={i}>
-            <text x={0} y={y + BAR_H / 2 + 4} className="fill-slate-600 font-medium" fontSize="11">{item.name}</text>
-            <rect x={PADDING} y={y} width={Math.max(w, 4)} height={BAR_H} rx="5" className="fill-sky-500 opacity-80" />
-            <text x={PADDING + Math.max(w, 4) + 6} y={y + BAR_H / 2 + 4} className="fill-slate-500" fontSize="11">{item.count} {valueLabel} ({item.percentage}%)</text>
+            <text x={0} y={y + BAR_H / 2 + 4} fill="#475569" fontSize="12" fontWeight="500">
+              <title>{item.name}</title>
+              {truncate(item.name, 26)}
+            </text>
+            <rect x={LABEL_W + 4} y={y} width={w} height={BAR_H} rx="5" fill="#0ea5e9" opacity="0.8" />
+            <text x={LABEL_W + 4 + w + 8} y={y + BAR_H / 2 + 4} fill="#64748b" fontSize="11">
+              {item.count} {valueLabel} ({item.percentage}%)
+            </text>
           </g>
         );
       })}

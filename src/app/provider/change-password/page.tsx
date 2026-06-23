@@ -27,10 +27,6 @@ export default function ProviderChangePasswordPage() {
           router.replace("/provider/login");
           return;
         }
-        const mustChangePassword = Boolean((data.session.user.user_metadata as any)?.must_change_password);
-        if (!mustChangePassword) {
-          router.replace("/provider/dashboard");
-        }
       } catch {
         router.replace("/provider/login");
       }

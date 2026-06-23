@@ -27,10 +27,6 @@ export default function AdminChangePasswordPage() {
           router.replace("/admin/login");
           return;
         }
-        const mustChangePassword = Boolean((data.session.user.user_metadata as any)?.must_change_password);
-        if (!mustChangePassword) {
-          router.replace("/admin/dashboard");
-        }
       } catch {
         router.replace("/admin/login");
       }

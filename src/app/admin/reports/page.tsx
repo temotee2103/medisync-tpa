@@ -64,6 +64,101 @@ const formatMonthLabel = (monthKey: string) => {
   return parsed.toLocaleString("en-MY", { month: "short", year: "numeric" });
 };
 
+const DONUT_COLORS: Record<string, string> = {
+  "bg-sky-500": "#0ea5e9",
+  "bg-emerald-500": "#10b981",
+  "bg-violet-500": "#8b5cf6",
+  "bg-amber-500": "#f59e0b",
+  "bg-rose-500": "#f43f5e",
+  "bg-cyan-500": "#06b6d4",
+};
+
+/* ── Lightweight SVG Donut Chart ── */
+function DonutChart({
+  data,
+  totalLabel,
+  totalValue,
+}: {
+  data: Array<{ name: string; amount: number; percentage: number; color: string }>;
+  totalLabel: string;
+  totalValue: string;
+}) {
+  const RADIUS = 80;
+  const STROKE = 18;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+  const SIZE = (RADIUS + STROKE) * 2 + 8;
+
+  let cumulativePercent = 0;
+  const segments = data.map((item) => {
+    const offset = (cumulativePercent / 100) * CIRCUMFERENCE;
+    const length = (item.percentage / 100) * CIRCUMFERENCE;
+    cumulativePercent += item.percentage;
+    return { ...item, offset, length };
+  });
+
+  return (
+    <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} className="drop-shadow-sm">
+      <circle
+        cx={SIZE / 2}
+        cy={SIZE / 2}
+        r={RADIUS}
+        fill="none"
+        stroke="#e2e8f0"
+        strokeWidth={STROKE}
+      />
+      {segments.map((seg, i) => (
+        <circle
+          key={i}
+          cx={SIZE / 2}
+          cy={SIZE / 2}
+          r={RADIUS}
+          fill="none"
+          stroke={DONUT_COLORS[seg.color] || "#94a3b8"}
+          strokeWidth={STROKE}
+          strokeDasharray={`${seg.length} ${CIRCUMFERENCE - seg.length}`}
+          strokeDashoffset={-seg.offset}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
+          className="transition-all duration-700"
+        />
+      ))}
+      <text x={SIZE / 2} y={SIZE / 2 - 8} textAnchor="middle" className="fill-slate-400 text-[10px] font-semibold uppercase tracking-wider">{totalLabel}</text>
+      <text x={SIZE / 2} y={SIZE / 2 + 12} textAnchor="middle" className="fill-slate-800 text-sm font-bold">{totalValue}</text>
+    </svg>
+  );
+}
+
+/* ── Lightweight SVG Bar Chart ── */
+function BarChart({
+  data,
+  valueLabel,
+}: {
+  data: Array<{ name: string; count: number; percentage: number }>;
+  valueLabel: string;
+}) {
+  if (data.length === 0) return <p className="text-sm text-slate-400 py-8 text-center">No data available.</p>;
+  const maxCount = Math.max(...data.map((d) => d.count), 1);
+  const BAR_H = 28;
+  const CHART_W = 320;
+  const PADDING = 120;
+
+  return (
+    <svg width="100%" height={data.length * (BAR_H + 8) + 4} viewBox={`0 0 ${CHART_W} ${data.length * (BAR_H + 8) + 4}`} className="text-xs">
+      {data.map((item, i) => {
+        const y = i * (BAR_H + 8);
+        const w = (item.count / maxCount) * (CHART_W - PADDING);
+        return (
+          <g key={i}>
+            <text x={0} y={y + BAR_H / 2 + 4} className="fill-slate-600 font-medium" fontSize="11">{item.name}</text>
+            <rect x={PADDING} y={y} width={Math.max(w, 4)} height={BAR_H} rx="5" className="fill-sky-500 opacity-80" />
+            <text x={PADDING + Math.max(w, 4) + 6} y={y + BAR_H / 2 + 4} className="fill-slate-500" fontSize="11">{item.count} {valueLabel} ({item.percentage}%)</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 export default function ReportsPage() {
   const [isReportsLoaded, setIsReportsLoaded] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState("all");
@@ -288,9 +383,9 @@ export default function ReportsPage() {
           <h1 className="text-2xl font-bold text-slate-800">Reports & Analytics</h1>
           <p className="text-slate-500">System-wide performance and utilization tracking.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <select
-            className="glass-select px-3 py-2 text-sm min-w-52"
+            className="glass-select px-4 py-2 text-sm min-w-[180px]"
             value={selectedCompanyId}
             onChange={(e) => setSelectedCompanyId(e.target.value)}
           >
@@ -302,9 +397,9 @@ export default function ReportsPage() {
             ))}
           </select>
           <div className="relative">
-            <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 z-10" />
             <select
-              className="glass-select min-w-40 pl-9 pr-3 py-2 text-sm"
+              className="glass-select min-w-[172px] pl-9 pr-4 py-2 text-sm"
               value={effectiveSelectedPeriod}
               onChange={(event) => setSelectedPeriod(event.target.value)}
             >
@@ -383,20 +478,9 @@ export default function ReportsPage() {
             {!isReportsLoading && diagnosisData.length === 0 && (
               <p className="text-sm text-slate-500">No diagnosis data available for the current filters.</p>
             )}
-            {!isReportsLoading && diagnosisData.map((item, i) => (
-              <div key={i} className="space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span className="font-medium text-slate-700">{item.name}</span>
-                  <span className="text-slate-500">{item.count} cases ({item.percentage}%)</span>
-                </div>
-                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-sky-500 rounded-full transition-all duration-1000" 
-                    style={{ width: `${item.percentage}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+            {!isReportsLoading && diagnosisData.length > 0 && (
+              <BarChart data={diagnosisData} valueLabel="cases" />
+            )}
           </div>
         </GlassCard>
 
@@ -424,29 +508,22 @@ export default function ReportsPage() {
             </GlassButton>
           </div>
           
-          <div className="flex items-center justify-center py-4">
-             {/* Simple CSS Donut Chart Representation */}
-             <div className="relative w-48 h-48 rounded-full border-[16px] border-slate-100 flex items-center justify-center">
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-slate-800">
-                    {isReportsLoading ? "..." : `RM ${selectedPayoutValue.toLocaleString("en-MY")}`}
-                  </p>
-                  <p className="text-xs text-slate-500 uppercase tracking-wider">Total Spent</p>
-                </div>
-                {/* Overlay segments would require complex CSS conic-gradients, sticking to legend for now */}
-             </div>
+          <div className="flex items-center justify-center py-2">
+            {isReportsLoading ? (
+              <p className="text-sm text-slate-400">Loading...</p>
+            ) : categoryData.length === 0 ? (
+              <p className="text-sm text-slate-400">No data for current filters.</p>
+            ) : (
+              <DonutChart data={categoryData} totalLabel="Total Spent" totalValue={`RM ${selectedPayoutValue.toLocaleString("en-MY")}`} />
+            )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {isReportsLoading && <p className="col-span-2 text-sm text-slate-500">Loading category utilization...</p>}
-            {!isReportsLoading && categoryData.length === 0 && (
-              <p className="col-span-2 text-sm text-slate-500">No category utilization data available for the current filters.</p>
-            )}
+          <div className="grid grid-cols-2 gap-3">
             {!isReportsLoading && categoryData.map((cat, i) => (
-              <div key={i} className="flex items-center gap-3">
+              <div key={i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/50 transition-colors">
                 <div className={cn("w-3 h-3 rounded-full shrink-0", cat.color)} />
-                <div>
-                  <p className="text-xs text-slate-500 font-bold">{cat.name}</p>
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-500 font-bold truncate">{cat.name}</p>
                   <p className="text-sm font-bold text-slate-800">RM {cat.amount.toLocaleString()}</p>
                 </div>
               </div>

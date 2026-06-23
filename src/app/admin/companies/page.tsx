@@ -371,6 +371,7 @@ const createEmptyDependentDraft = () => ({
   fullName: "",
   relationship: "Child" as const,
   gender: "Male" as const,
+  dob: "",
   nricPassport: "",
   passportExpiry: "",
   lumpSumLimit: "" as number | "",
@@ -390,6 +391,7 @@ type DependentDraft = {
   fullName: string;
   relationship: "Spouse" | "Child" | "Parent";
   gender: "Male" | "Female";
+  dob: string;
   nricPassport: string;
   passportExpiry: string;
   lumpSumLimit: number | "";
@@ -753,6 +755,10 @@ export default function AdminCompanyManagementPage() {
   const updateSelectedCompany = (updated: Company) => {
     if (!canOperateCompanies) return;
     setCompanies((prev) => prev.map((entry) => (entry.companyId === updated.companyId ? updated : entry)));
+    // Keep companyForm.planConfig in sync when editing modal is open
+    if (editingCompanyId === updated.companyId) {
+      setCompanyForm((prev) => ({ ...prev, planConfig: updated.planConfig }));
+    }
     void upsertCompanyToSupabase(updated);
     void logAdminAction(`Updated company plan config: ${updated.companyId}`, "companies", updated.companyId);
   };
@@ -2473,6 +2479,30 @@ export default function AdminCompanyManagementPage() {
                             </div>
                           </div>
                           <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-slate-700">Date of Birth <span className="text-red-500">*</span></label>
+                            <div className="relative">
+                              <input
+                                type="date"
+                                className="w-full glass-input pl-10 pr-4 py-2.5"
+                                value={dependent.dob || ""}
+                                onChange={(e) =>
+                                  setMemberForm((prev) => ({
+                                    ...prev,
+                                    dependents: prev.dependents.map((item, i) =>
+                                      i === index ? { ...item, dob: e.target.value } : item
+                                    ),
+                                  }))
+                                }
+                              />
+                              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
+                            </div>
+                            {dependent.relationship === "Child" && (
+                              <p className="text-[11px] text-amber-600 mt-1">
+                                Child coverage age limit: max {selectedCompany.planConfig.dependents.maxChildren > 0 ? `${18 + Math.min(selectedCompany.planConfig.dependents.maxChildren, 8)} years` : "per company policy"}
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-1.5">
                             <label className="text-sm font-medium text-slate-700">{memberForm.idType === "Passport" ? "Dependent Passport No." : "Dependent NRIC / Passport No."} <span className="text-red-500">*</span></label>
                             <div className="relative">
                               <input
@@ -2796,7 +2826,7 @@ export default function AdminCompanyManagementPage() {
                         status: "Active",
                         phoneCountryCode: "",
                         phone: "",
-                        dob: "",
+                        dob: dependent.dob || "",
                         passportExpiry: dependent.passportExpiry || "",
                         passportFileName: "",
                         planType: memberForm.planType,

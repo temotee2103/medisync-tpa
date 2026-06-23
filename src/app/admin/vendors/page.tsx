@@ -1027,9 +1027,14 @@ export default function VendorManagementPage() {
 
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
               {vendorFormError && (
-                <p className={`mr-auto text-xs font-medium self-center ${vendorFormError.includes("successfully") ? "text-emerald-600" : "text-red-500"}`}>
+                <div className={`mr-auto text-sm font-semibold self-center px-4 py-2 rounded-lg ${
+                  vendorFormError.includes("successfully")
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : "bg-red-50 text-red-700 border border-red-200"
+                }`}>
+                  {vendorFormError.includes("successfully") ? "✓ " : "⚠ "}
                   {vendorFormError}
-                </p>
+                </div>
               )}
               <GlassButton
                 variant="secondary"
@@ -1052,6 +1057,11 @@ export default function VendorManagementPage() {
                       return;
                     }
                     const isEditing = Boolean(editingVendorId);
+                    // Safety: prevent duplicate creation when editing
+                    if (isEditing && vendorForm.vendorId !== editingVendorId) {
+                      setVendorFormError("Form ID mismatch detected. Please close and re-open the editor.");
+                      return;
+                    }
                     setVendorFormError("");
                     try {
                       const res = await fetch(withBasePath("/api/admin/providers/upsert"), {
@@ -1085,7 +1095,7 @@ export default function VendorManagementPage() {
                         setVendorModalView("details");
                         setVendorFormError("");
                         setIsVendorModalOpen(false);
-                      }, 1200);
+                      }, 3000);
                     } catch (error) {
                       setVendorFormError(error instanceof Error ? error.message : "Failed to save vendor.");
                     }

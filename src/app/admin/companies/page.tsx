@@ -1797,9 +1797,14 @@ export default function AdminCompanyManagementPage() {
 
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
               {companyFormError && (
-                <p className={`mr-auto text-xs font-medium self-center ${companyFormError.includes("successfully") ? "text-emerald-600" : "text-red-500"}`}>
+                <div className={`mr-auto text-sm font-semibold self-center px-4 py-2 rounded-lg ${
+                  companyFormError.includes("successfully")
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : "bg-red-50 text-red-700 border border-red-200"
+                }`}>
+                  {companyFormError.includes("successfully") ? "✓ " : "⚠ "}
                   {companyFormError}
-                </p>
+                </div>
               )}
               <GlassButton
                 variant="secondary"
@@ -1822,6 +1827,11 @@ export default function AdminCompanyManagementPage() {
                       return;
                     }
                     const isEditing = Boolean(editingCompanyId);
+                    // Safety: prevent duplicate creation when editing
+                    if (isEditing && companyForm.companyId !== editingCompanyId) {
+                      setCompanyFormError("Form ID mismatch detected. Please close and re-open the editor.");
+                      return;
+                    }
                     const normalizedCompany = {
                       ...companyForm,
                       hrName: normalizeName(companyForm.hrName || ""),
@@ -1868,7 +1878,7 @@ export default function AdminCompanyManagementPage() {
                         "companies",
                         normalizedCompany.companyId
                       );
-                      // Show success feedback before closing
+                      // Show success feedback — stays visible longer for user confirmation
                       setCompanyFormError(`${isEditing ? "Updated" : "Created"} successfully ✓`);
                       setTimeout(() => {
                         setCompanyForm(createEmptyCompanyForm());
@@ -1876,7 +1886,7 @@ export default function AdminCompanyManagementPage() {
                         setCompanyModalView("details");
                         setCompanyFormError("");
                         setIsCompanyModalOpen(false);
-                      }, 1200);
+                      }, 3000);
                       return;
                     } catch (error) {
                       setCompanyFormError(normalizeSupabaseErrorMessage(error, "Failed to save company."));

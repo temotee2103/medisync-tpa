@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { GlassButton } from "@/components/ui/GlassButton";
 import type { CatalogType } from "@/lib/catalog/types";
 
 const tabs: Array<{ key: CatalogType; label: string }> = [
@@ -21,21 +22,19 @@ export default function CatalogTabs({ value, onChange }: Props) {
   return (
     <div className="flex flex-wrap gap-2">
       {tabs.map((t) => (
-        <button
+        <GlassButton
           key={t.key}
-          type="button"
-          className={cn(
-            "px-4 py-2 rounded-xl text-sm font-bold border transition-colors",
-            value === t.key
-              ? "bg-sky-600 text-white border-sky-600"
-              : "bg-white/60 text-slate-700 border-white/70 hover:bg-white/80"
-          )}
+          size="sm"
           onClick={() => onChange(t.key)}
+          className={cn(
+            value === t.key
+              ? "bg-sky-600 text-white border-sky-600 shadow-lg shadow-sky-500/30"
+              : "bg-white/60 text-slate-700 border-white/70 hover:bg-white/80 shadow-none",
+          )}
         >
           {t.label}
-        </button>
+        </GlassButton>
       ))}
     </div>
   );
 }
-

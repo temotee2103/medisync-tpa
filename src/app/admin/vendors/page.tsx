@@ -773,16 +773,17 @@ export default function VendorManagementPage() {
                     : "Admin creates initial vendor profile and credentials. Compliance and member setup continue after creation."}
                 </p>
               </div>
-              <button 
+              <GlassButton 
+                variant="ghost"
+                size="icon"
                 onClick={() => {
                   setIsVendorModalOpen(false);
                   setEditingVendorId(null);
                   setVendorModalView("details");
                 }}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
             {editingVendorId && (
               <div className="px-8 py-3 border-b border-slate-200/60 bg-white/80 backdrop-blur-md flex gap-2">
@@ -1132,15 +1133,16 @@ export default function VendorManagementPage() {
               </div>
               <div className="flex items-center gap-3">
                 <StatusBadge status={complianceState.state} scheme={getBadgeScheme(complianceState.state)} />
-                <button
+                <GlassButton
+                  variant="ghost"
+                  size="icon"
                   onClick={() => {
                     setIsComplianceModalOpen(false);
                     resetComplianceModalState();
                   }}
-                  className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
                 >
                   <XCircle className="w-6 h-6" />
-                </button>
+                </GlassButton>
               </div>
             </div>
 
@@ -1737,12 +1739,13 @@ export default function VendorManagementPage() {
                 </h2>
                 <p className="text-sm text-slate-500 mt-1">Assign staff access for {selectedVendor.providerName}.</p>
               </div>
-              <button 
+              <GlassButton 
+                variant="ghost"
+                size="icon"
                 onClick={() => setIsMemberModalOpen(false)}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
 
             <div className="overflow-y-auto p-8 custom-scrollbar">

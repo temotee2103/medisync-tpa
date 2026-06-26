@@ -2297,12 +2297,9 @@ function UserManagementPageContent() {
                 </h2>
                 <p className="text-sm text-slate-500 mt-1">{passportRenewMember.fullName} • {passportRenewMember.staffId}</p>
               </div>
-              <button
-                onClick={() => setPassportRenewMember(null)}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+              <GlassButton variant="ghost" size="icon" onClick={() => setPassportRenewMember(null)}>
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
             <div className="p-8 space-y-4">
               <div className="space-y-1.5">
@@ -2364,12 +2361,9 @@ function UserManagementPageContent() {
                   {editingMemberType === "corporate" ? "Update corporate member profile details." : "Update vendor member profile details."}
                 </p>
               </div>
-              <button
-                onClick={() => setIsMemberEditModalOpen(false)}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+              <GlassButton variant="ghost" size="icon" onClick={() => setIsMemberEditModalOpen(false)}>
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
             <div className="overflow-y-auto p-8 custom-scrollbar">
               <form className="space-y-8">
@@ -2518,11 +2512,11 @@ function UserManagementPageContent() {
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-sm font-medium text-slate-700">Gender</label>
-                          <select
-                            className="w-full glass-input px-4 py-2.5 bg-transparent"
+                          <GlassSelect
                             value={editingMemberDraft.gender}
-                            onChange={(e) => {
-                              const nextGender = e.target.value as "Male" | "Female";
+                            options={[{ label: "Male", value: "Male" }, { label: "Female", value: "Female" }]}
+                            onChange={(v) => {
+                              const nextGender = v as "Male" | "Female";
                               setEditingMemberDraft((prev) => ({ ...prev, gender: nextGender }));
                               setEditingDependents((prev) =>
                                 prev.map((dep) =>
@@ -2532,12 +2526,7 @@ function UserManagementPageContent() {
                                 )
                               );
                             }}
-                          >
-                            <option value="Male">Male</option>
-                            <option value="Female">Female</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1.5">
+                          />
                           <label className="text-sm font-medium text-slate-700">Relationship</label>
                           <input
                             type="text"
@@ -2562,18 +2551,11 @@ function UserManagementPageContent() {
                         <>
                           <div className="space-y-1.5">
                             <label className="text-sm font-medium text-slate-700">Role</label>
-                            <div className="relative">
-                              <select
-                                className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
-                                value={editingMemberDraft.role}
-                                onChange={(e) => setEditingMemberDraft((prev) => ({ ...prev, role: e.target.value }))}
-                              >
-                                <option value="">Select role</option>
-                                <option value="Admin">Admin</option>
-                                <option value="Doctor">Doctor</option>
-                              </select>
-                              <Stethoscope className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
-                            </div>
+                            <GlassSelect
+                              value={editingMemberDraft.role}
+                              options={[{ label: "Admin", value: "Admin" }, { label: "Doctor", value: "Doctor" }]}
+                              onChange={(v) => setEditingMemberDraft((prev) => ({ ...prev, role: v }))}
+                            />
                           </div>
                           <div className="space-y-1.5">
                             <label className="text-sm font-medium text-slate-700">Temporary Password</label>
@@ -2855,51 +2837,38 @@ function UserManagementPageContent() {
                               </div>
                               <div className="space-y-1.5">
                                 <label className="text-sm font-medium text-slate-700">Dependent Relationship <span className="text-red-500">*</span></label>
-                                <div className="relative">
-                                  <select
-                                    className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
-                                    value={dependent.relationship}
-                                    onChange={(e) =>
-                                      setEditingDependents((prev) =>
-                                        prev.map((item, i) => {
-                                          if (i !== index) return item;
-                                          const nextRelationship = e.target.value as "Spouse" | "Child" | "Parent";
-                                          return {
-                                            ...item,
-                                            relationship: nextRelationship,
-                                            gender: nextRelationship === "Spouse" ? getOppositeBinaryGender(editingMemberDraft.gender) : item.gender,
-                                          };
-                                        })
-                                      )
-                                    }
-                                  >
-                                    <option value="Spouse">Spouse</option>
-                                    <option value="Child">Child</option>
-                                    <option value="Parent">Parent</option>
-                                  </select>
-                                  <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
-                                </div>
+                                <GlassSelect
+                                  value={dependent.relationship}
+                                  options={[{ label: "Spouse", value: "Spouse" }, { label: "Child", value: "Child" }, { label: "Parent", value: "Parent" }]}
+                                  onChange={(v) =>
+                                    setEditingDependents((prev) =>
+                                      prev.map((item, i) => {
+                                        if (i !== index) return item;
+                                        const nextRelationship = v as "Spouse" | "Child" | "Parent";
+                                        return {
+                                          ...item,
+                                          relationship: nextRelationship,
+                                          gender: nextRelationship === "Spouse" ? getOppositeBinaryGender(editingMemberDraft.gender) : item.gender,
+                                        };
+                                      })
+                                    )
+                                  }
+                                />
                               </div>
                               <div className="space-y-1.5">
                                 <label className="text-sm font-medium text-slate-700">Dependent Gender <span className="text-red-500">*</span></label>
-                                <div className="relative">
-                                  <select
-                                    className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
-                                    disabled={dependent.relationship === "Spouse"}
-                                    value={dependent.relationship === "Spouse" ? getOppositeBinaryGender(editingMemberDraft.gender) : dependent.gender}
-                                    onChange={(e) =>
-                                      setEditingDependents((prev) =>
-                                        prev.map((item, i) =>
-                                          i === index ? { ...item, gender: e.target.value as "Male" | "Female" } : item
-                                        )
+                                <GlassSelect
+                                  disabled={dependent.relationship === "Spouse"}
+                                  value={dependent.relationship === "Spouse" ? getOppositeBinaryGender(editingMemberDraft.gender) : dependent.gender}
+                                  options={[{ label: "Male", value: "Male" }, { label: "Female", value: "Female" }]}
+                                  onChange={(v) =>
+                                    setEditingDependents((prev) =>
+                                      prev.map((item, i) =>
+                                        i === index ? { ...item, gender: v as "Male" | "Female" } : item
                                       )
-                                    }
-                                  >
-                                    <option value="Male">Male</option>
-                                    <option value="Female">Female</option>
-                                  </select>
-                                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
-                                </div>
+                                    )
+                                  }
+                                />
                               </div>
                               <div className="space-y-1.5">
                                 <label className="text-sm font-medium text-slate-700">
@@ -3046,12 +3015,9 @@ function UserManagementPageContent() {
                 </h2>
                 <p className="text-sm text-slate-500 mt-1">Configure user access and profile details.</p>
               </div>
-              <button 
-                onClick={() => setIsModalOpen(false)}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+              <GlassButton variant="ghost" size="icon" onClick={() => setIsModalOpen(false)}>
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
 
             {/* Scrollable Content */}
@@ -3108,23 +3074,17 @@ function UserManagementPageContent() {
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium text-slate-700">Contact Number</label>
                       <div className="flex gap-3">
-                        <div className="relative w-28 shrink-0">
-                          <select
-                            className="w-full glass-input px-3 py-2.5 bg-transparent"
+                        <div className="w-28 shrink-0">
+                          <GlassSelect
                             value={newAdminContactPhoneParts.countryCode}
-                            onChange={(e) =>
+                            options={DIAL_CODES.map((c) => ({ label: c, value: c }))}
+                            onChange={(v) =>
                               setNewAdminForm((prev) => ({
                                 ...prev,
-                                contactPhone: joinPhoneNumber(e.target.value, newAdminContactPhoneParts.localNumber),
+                                contactPhone: joinPhoneNumber(v, newAdminContactPhoneParts.localNumber),
                               }))
                             }
-                          >
-                            {DIAL_CODES.map((code) => (
-                              <option key={code} value={code}>
-                                {code}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </div>
                         <input
                           type="tel"
@@ -3143,23 +3103,17 @@ function UserManagementPageContent() {
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium text-slate-700">Second Contact Number</label>
                       <div className="flex gap-3">
-                        <div className="relative w-28 shrink-0">
-                          <select
-                            className="w-full glass-input px-3 py-2.5 bg-transparent"
+                        <div className="w-28 shrink-0">
+                          <GlassSelect
                             value={newAdminSecondaryPhoneParts.countryCode}
-                            onChange={(e) =>
+                            options={DIAL_CODES.map((c) => ({ label: c, value: c }))}
+                            onChange={(v) =>
                               setNewAdminForm((prev) => ({
                                 ...prev,
-                                contactPhoneSecondary: joinPhoneNumber(e.target.value, newAdminSecondaryPhoneParts.localNumber),
+                                contactPhoneSecondary: joinPhoneNumber(v, newAdminSecondaryPhoneParts.localNumber),
                               }))
                             }
-                          >
-                            {DIAL_CODES.map((code) => (
-                              <option key={code} value={code}>
-                                {code}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </div>
                         <input
                           type="tel"
@@ -3177,19 +3131,11 @@ function UserManagementPageContent() {
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium text-slate-700">Role <span className="text-red-500">*</span></label>
-                      <div className="relative">
-                        <select
-                          className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
-                          required
-                          value={newAdminForm.role}
-                          onChange={(e) => setNewAdminForm((prev) => ({ ...prev, role: e.target.value as AdminRole }))}
-                        >
-                          <option value="super_admin">Super Admin</option>
-                          <option value="admin">Admin</option>
-                          <option value="accountant">Accountant</option>
-                        </select>
-                        <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
-                      </div>
+                      <GlassSelect
+                        value={newAdminForm.role}
+                        options={[{ label: "Super Admin", value: "super_admin" }, { label: "Admin", value: "admin" }, { label: "Accountant", value: "accountant" }]}
+                        onChange={(v) => setNewAdminForm((prev) => ({ ...prev, role: v as AdminRole }))}
+                      />
                     </div>
                   </div>
                 </section>

@@ -1243,17 +1243,18 @@ export default function AdminCompanyManagementPage() {
                   {editingCompanyId ? "Update corporate profile and contact details." : "Create corporate profile and contact details."}
                 </p>
               </div>
-              <button 
+              <GlassButton 
+                variant="ghost"
+                size="icon"
                 onClick={() => {
                   setIsCompanyModalOpen(false);
                   setEditingCompanyId(null);
                   setCompanyModalView("details");
                   setCompanyFormError("");
                 }}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
             {editingCompanyId && (
               <div className="px-8 py-3 border-b border-slate-200/60 bg-white/80 backdrop-blur-md flex gap-2">
@@ -2137,12 +2138,13 @@ export default function AdminCompanyManagementPage() {
                 </h2>
                 <p className="text-sm text-slate-500 mt-1">Corporate member onboarding follows the same user-creation flow with profile + credentials.</p>
               </div>
-              <button 
+              <GlassButton 
+                variant="ghost"
+                size="icon"
                 onClick={() => setIsMemberModalOpen(false)}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
 
             <div className="overflow-y-auto p-8 custom-scrollbar">
@@ -3087,12 +3089,13 @@ export default function AdminCompanyManagementPage() {
                   Upload an Excel file to upsert members for {selectedCompany.name}.
                 </p>
               </div>
-              <button
+              <GlassButton
+                variant="ghost"
+                size="icon"
                 onClick={closeBulkImport}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
 
             <div className="overflow-y-auto p-8 custom-scrollbar space-y-6">

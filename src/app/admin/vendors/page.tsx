@@ -334,6 +334,10 @@ export default function VendorManagementPage() {
   const complianceState = useMemo(() => getComplianceState(complianceVendor), [complianceVendor]);
   const clinicDoc = useMemo(() => complianceVendor?.compliance?.clinicLicense, [complianceVendor]);
   const apcDocs = useMemo(() => complianceVendor?.compliance?.doctorApcs ?? [], [complianceVendor]);
+  const docs = useMemo(() => complianceVendor?.compliance?.documents ?? [], [complianceVendor]);
+  const ssmDoc = useMemo(() => docs.find(d => d.docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.SSM), [docs]);
+  const borangBDoc = useMemo(() => docs.find(d => d.docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B), [docs]);
+  const tcmDoc = useMemo(() => docs.find(d => d.docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.TCM), [docs]);
   const doctorMembers = useMemo(() => {
     if (!complianceVendorId) return [];
     return getVendorMembersByVendor(complianceVendorId)
@@ -360,8 +364,9 @@ export default function VendorManagementPage() {
   const compliancePendingCount = useMemo(() => {
     const clinicPending = clinicDoc?.status === "submitted" ? 1 : 0;
     const apcPending = apcDocs.filter((doc) => doc.status === "submitted").length;
-    return clinicPending + apcPending;
-  }, [apcDocs, clinicDoc]);
+    const docPending = docs.filter((doc) => doc.status === "submitted").length;
+    return clinicPending + apcPending + docPending;
+  }, [apcDocs, clinicDoc, docs]);
   const complianceHistory = useMemo(() => {
     if (!complianceVendor) return [];
     const historyRows: Array<{
@@ -414,8 +419,33 @@ export default function VendorManagementPage() {
         });
       }
     });
+    docs.forEach((doc) => {
+      const label = doc.docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.SSM ? "SSM" :
+                     doc.docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B ? "Borang B" :
+                     doc.docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.TCM ? "TCM" : "Document";
+      if (doc.submittedAt) {
+        historyRows.push({
+          type: label,
+          subject: doc.fileName || label,
+          event: "Submitted",
+          actor: doc.submittedBy || "vendor",
+          date: doc.submittedAt,
+          status: getDocumentState(doc, doc.docType),
+        });
+      }
+      if (doc.reviewedAt) {
+        historyRows.push({
+          type: label,
+          subject: doc.fileName || label,
+          event: "Reviewed",
+          actor: doc.reviewedBy || "Admin",
+          date: doc.reviewedAt,
+          status: getDocumentState(doc, doc.docType),
+        });
+      }
+    });
     return historyRows.sort((a, b) => b.date.localeCompare(a.date));
-  }, [apcDocs, clinicDoc, complianceVendor]);
+  }, [apcDocs, clinicDoc, complianceVendor, docs]);
   const pendingReviews = useMemo(() => {
     return vendors.flatMap((vendor) => {
       const items: Array<{ vendorId: string; providerName: string; type: string; name: string }> = [];
@@ -434,6 +464,19 @@ export default function VendorManagementPage() {
             providerName: vendor.providerName,
             type: "Doctor APC",
             name: `${doc.doctorName} • ${doc.fileName || "Unnamed file"}`,
+          });
+        }
+      });
+      (vendor.compliance?.documents || []).forEach((doc) => {
+        if (doc.status === "submitted") {
+          const label = doc.docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.SSM ? "SSM" :
+                         doc.docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B ? "Borang B" :
+                         doc.docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.TCM ? "TCM" : "Document";
+          items.push({
+            vendorId: vendor.vendorId,
+            providerName: vendor.providerName,
+            type: label,
+            name: doc.fileName || "Unnamed file",
           });
         }
       });
@@ -1160,10 +1203,26 @@ export default function VendorManagementPage() {
                 </div>
                 <div className="hidden sm:block w-px h-6 bg-slate-200" />
                 <div className="flex items-center gap-2">
-                  <span className="text-xs uppercase tracking-widest text-slate-400">Clinic License</span>
+                  <span className="text-xs uppercase tracking-widest text-slate-400">Clinic</span>
                   <StatusBadge
                     status={getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE)}
                     scheme={getBadgeScheme(getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE))}
+                  />
+                </div>
+                <div className="hidden sm:block w-px h-6 bg-slate-200" />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-widest text-slate-400">SSM</span>
+                  <StatusBadge
+                    status={getDocumentState(ssmDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.SSM)}
+                    scheme={getBadgeScheme(getDocumentState(ssmDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.SSM))}
+                  />
+                </div>
+                <div className="hidden sm:block w-px h-6 bg-slate-200" />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-widest text-slate-400">Borang B</span>
+                  <StatusBadge
+                    status={getDocumentState(borangBDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B)}
+                    scheme={getBadgeScheme(getDocumentState(borangBDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B))}
                   />
                 </div>
                 <div className="hidden sm:block w-px h-6 bg-slate-200" />
@@ -1359,6 +1418,79 @@ export default function VendorManagementPage() {
                       </GlassButton>
                     </fieldset>
                   )}
+
+                  {/* Documents: SSM, Borang B, TCM */}
+                  <div className="pt-3 border-t border-slate-200/60 space-y-3">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Vendor Documents</h4>
+                    {[{
+                      doc: ssmDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.SSM, label: "SSM Certificate"
+                    }, {
+                      doc: borangBDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B, label: "Borang B"
+                    }, {
+                      doc: tcmDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.TCM, label: "TCM Certificate"
+                    }].map(({ doc, docType, label }) => (
+                      <div key={docType} className="rounded-xl border border-slate-200 bg-white/60 p-3 flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-slate-700">{label}</p>
+                            <StatusBadge
+                              status={getDocumentState(doc, docType)}
+                              scheme={getBadgeScheme(getDocumentState(doc, docType))}
+                            />
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">{doc?.fileName || "Not uploaded"}</p>
+                          {doc?.submittedAt && (
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              Submitted by {doc.submittedBy || "vendor"} • {doc.submittedAt}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <GlassButton
+                            variant="secondary"
+                            size="xs"
+                            disabled={!doc?.fileName}
+                            onClick={() => {
+                              if (!doc?.fileName) return;
+                              downloadComplianceDocument(
+                                doc.fileName || `${label}.pdf`,
+                                doc.fileDataUrl,
+                                doc.storagePath,
+                                `Vendor: ${complianceVendor.providerName}\nDocument: ${label}\nExpiry: ${doc?.expiryDate || "-"}`
+                              );
+                            }}
+                          >
+                            View
+                          </GlassButton>
+                          {doc?.status === "submitted" ? (
+                            <>
+                              <GlassButton
+                                size="xs"
+                                disabled={disableVendorEditing}
+                                onClick={() => {
+                                  if (!doc.credentialId) return;
+                                  void reviewCredentialDecision(doc.credentialId, "approved");
+                                }}
+                              >
+                                Approve
+                              </GlassButton>
+                              <GlassButton
+                                variant="secondary"
+                                size="xs"
+                                disabled={disableVendorEditing}
+                                onClick={() => {
+                                  if (!doc.credentialId) return;
+                                  void reviewCredentialDecision(doc.credentialId, "rejected");
+                                }}
+                              >
+                                Reject
+                              </GlassButton>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </GlassCard>
               )}
 

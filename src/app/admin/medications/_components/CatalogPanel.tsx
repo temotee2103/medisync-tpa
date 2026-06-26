@@ -58,7 +58,7 @@ const titleByType: Record<CatalogType, { title: string; subtitle: string }> = {
   },
   diagnosis: {
     title: "Diagnosis Catalog",
-    subtitle: "Manage diagnosis dropdown items (full + short label) used by provider claims.",
+    subtitle: "Manage diagnosis dropdowns for provider claims.",
   },
   diagnoses: {
     title: "Diagnosis Catalog",

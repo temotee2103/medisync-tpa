@@ -441,8 +441,8 @@ export default function VendorManagementPage() {
     });
   }, [vendors]);
   const pendingVendorSubmissions = useMemo(() => {
-    return providerSession.getVendorPendingComplianceItems(activeVendorId);
-  }, [activeVendorId]);
+    return providerSession.getVendorPendingComplianceItems(complianceVendorId);
+  }, [complianceVendorId]);
 
   const reviewCredentialDecision = async (credentialId: string, status: "approved" | "rejected") => {
     if (disableVendorEditing) return;

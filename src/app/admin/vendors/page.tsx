@@ -1286,218 +1286,138 @@ export default function VendorManagementPage() {
 
               {complianceStep === "clinic" && (
                 <GlassCard className="p-5 space-y-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <h3 className="text-sm font-bold text-slate-800">Clinic License</h3>
-                      <p className="text-sm text-slate-700">{clinicDoc?.fileName || "Not uploaded"}</p>
-                      <p className="text-xs text-slate-500">Expiry: {clinicDoc?.expiryDate || "—"}</p>
-                      <p className="text-xs text-slate-400">
-                        {clinicDoc?.submittedBy ? `Submitted by ${clinicDoc.submittedBy}` : "No submission yet"}
-                        {clinicDoc?.submittedAt ? ` • ${clinicDoc.submittedAt}` : ""}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {clinicDoc?.reviewedBy ? `Reviewed by ${clinicDoc.reviewedBy}` : "Not reviewed"}
-                        {clinicDoc?.reviewedAt ? ` • ${clinicDoc.reviewedAt}` : ""}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        <span className="font-semibold text-slate-600">Next action:</span>{" "}
-                        {getClinicNextActionMessage(clinicDoc)}
-                      </p>
-                    </div>
-                    <StatusBadge status={getDocumentState(clinicDoc)} scheme={getBadgeScheme(getDocumentState(clinicDoc))} />
-                  </div>
-
+                  {/* Documents: Borang F (Clinic License), Borang B, SSM, TCM */}
                   <div className="space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <GlassButton
-                        variant="secondary"
-                        size="sm"
-                        disabled={!clinicDoc?.fileName}
-                        onClick={() =>
-                          downloadComplianceDocument(
-                            clinicDoc?.fileName || "clinic-license.pdf",
-                            clinicDoc?.fileDataUrl,
-                            clinicDoc?.storagePath,
-                            `Vendor: ${complianceVendor.providerName}\nDocument: Clinic License\nExpiry: ${clinicDoc?.expiryDate || "-"}`
-                          )
-                        }
-                      >
-                        Download
-                      </GlassButton>
-                      <GlassButton
-                        size="sm"
-                        disabled={disableVendorEditing}
-                        onClick={() => setShowClinicUpload((prev) => !prev)}
-                      >
-                        {showClinicUpload ? "Hide Upload" : getClinicUploadActionLabel(clinicDoc)}
-                      </GlassButton>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {clinicDoc?.status === "submitted" ? (
-                        <>
-                          <GlassButton
-                            size="sm"
-                            disabled={disableVendorEditing}
-                            onClick={() => void reviewClinicSubmission("approved")}
-                          >
-                            Approve
-                          </GlassButton>
-                          <GlassButton
-                            size="sm"
-                            variant="ghost"
-                            disabled={disableVendorEditing}
-                            onClick={() => void reviewClinicSubmission("rejected")}
-                          >
-                            Reject
-                          </GlassButton>
-                        </>
-                      ) : null}
-                      {canDeleteVendors && (
-                        <GlassButton
-                          variant="ghost"
-                          size="sm"
-                          className="text-rose-700 hover:bg-rose-50 border-rose-200"
-                          disabled={!clinicDoc?.credentialId}
-                          onClick={() => {
-                            const credentialId = clinicDoc?.credentialId;
-                            if (!credentialId) return;
-                            void deleteCredential(credentialId);
-                          }}
-                        >
-                          Request Update
-                        </GlassButton>
-                      )}
-                    </div>
-                  </div>
-
-                  {showClinicUpload && (
-                    <fieldset disabled={disableVendorEditing} className="pt-3 border-t border-slate-200/60 space-y-3">
-                      <label className="glass-input px-3 py-2.5 cursor-pointer flex items-center justify-between text-sm text-slate-700 rounded-xl border border-slate-200/70 bg-white/80 shadow-sm hover:bg-white">
-                        <input
-                          type="file"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const dataUrl = await readFileAsDataUrl(file);
-                            setClinicUploadDraft((prev) => ({
-                              ...prev,
-                              fileName: file.name,
-                              fileDataUrl: dataUrl,
-                              fileMimeType: file.type,
-                            }));
-                          }}
-                        />
-                        <span className="font-medium truncate">{clinicUploadDraft.fileName || "Choose file"}</span>
-                        <span className="text-xs uppercase tracking-wider text-slate-400">Browse</span>
-                      </label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <input
-                          type="text"
-                          className="glass-input px-3 py-2 bg-slate-50 text-slate-500 cursor-not-allowed"
-                          placeholder="clinic-license.pdf"
-                          value={clinicUploadDraft.fileName}
-                          readOnly
-                        />
-                        <input
-                          type="date"
-                          className="glass-input px-3 py-2"
-                          value={clinicUploadDraft.expiryDate}
-                          onChange={(e) => setClinicUploadDraft((prev) => ({ ...prev, expiryDate: e.target.value }))}
-                        />
-                      </div>
-                      <GlassButton
-                        size="sm"
-                        onClick={() => {
-                          if (disableVendorEditing) return;
-                          if (!clinicUploadDraft.fileName || !clinicUploadDraft.expiryDate) return;
-                          submitVendorClinicLicense(complianceVendor.vendorId, {
-                            fileName: clinicUploadDraft.fileName,
-                            fileDataUrl: clinicUploadDraft.fileDataUrl,
-                            fileMimeType: clinicUploadDraft.fileMimeType,
-                            expiryDate: clinicUploadDraft.expiryDate,
-                            submittedBy: "admin",
-                          });
-                          setShowClinicUpload(false);
-                          setClinicUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
-                        }}
-                      >
-                        Record Clinic Upload
-                      </GlassButton>
-                    </fieldset>
-                  )}
-
-                  {/* Documents: SSM, Borang B, TCM */}
-                  <div className="pt-3 border-t border-slate-200/60 space-y-3">
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Vendor Documents</h4>
                     {[{
-                      doc: ssmDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.SSM, label: "SSM Certificate"
+                      doc: clinicDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE,
+                      label: "Borang F (Clinic License)", note: "Either One Required — Borang F or Borang B"
                     }, {
-                      doc: borangBDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B, label: "Borang B"
+                      doc: borangBDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B,
+                      label: "Borang B", note: "Either One Required — Borang F or Borang B"
                     }, {
-                      doc: tcmDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.TCM, label: "TCM Certificate"
-                    }].map(({ doc, docType, label }) => (
-                      <div key={docType} className="rounded-xl border border-slate-200 bg-white/60 p-3 flex items-center justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-slate-700">{label}</p>
-                            <StatusBadge
-                              status={getDocumentState(doc, docType)}
-                              scheme={getBadgeScheme(getDocumentState(doc, docType))}
-                            />
+                      doc: ssmDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.SSM,
+                      label: "SSM Certificate"
+                    }, {
+                      doc: tcmDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.TCM,
+                      label: "TCM Certificate"
+                    }].map(({ doc, docType, label, note }) => {
+                      const state = getDocumentState(doc, docType);
+                      const isClinicLicense = docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE;
+                      return (
+                      <div key={docType} className="rounded-xl border border-slate-200 bg-white/60 p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium text-slate-700">{label}</p>
+                              <StatusBadge status={state} scheme={getBadgeScheme(state)} />
+                            </div>
+                            {note && (
+                              <p className="text-[10px] text-amber-600 font-medium mt-0.5">{note}</p>
+                            )}
+                            <p className="text-xs text-slate-500 mt-1">{doc?.fileName || "Not uploaded"}</p>
+                            {doc?.expiryDate && <p className="text-xs text-slate-400">Expiry: {doc.expiryDate}</p>}
+                            {doc?.submittedAt && (
+                              <p className="text-xs text-slate-400">
+                                Submitted by {doc.submittedBy || "vendor"} • {doc.submittedAt}
+                              </p>
+                            )}
                           </div>
-                          <p className="text-xs text-slate-500 mt-1">{doc?.fileName || "Not uploaded"}</p>
-                          {doc?.submittedAt && (
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              Submitted by {doc.submittedBy || "vendor"} • {doc.submittedAt}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <GlassButton
-                            variant="secondary"
-                            size="xs"
-                            disabled={!doc?.fileName}
-                            onClick={() => {
-                              if (!doc?.fileName) return;
-                              downloadComplianceDocument(
-                                doc.fileName || `${label}.pdf`,
-                                doc.fileDataUrl,
-                                doc.storagePath,
-                                `Vendor: ${complianceVendor.providerName}\nDocument: ${label}\nExpiry: ${doc?.expiryDate || "-"}`
-                              );
-                            }}
-                          >
-                            View
-                          </GlassButton>
-                          {doc?.status === "submitted" ? (
-                            <>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <GlassButton
+                              variant="secondary"
+                              size="xs"
+                              disabled={!doc?.fileName}
+                              onClick={() => {
+                                if (!doc?.fileName) return;
+                                downloadComplianceDocument(
+                                  doc.fileName || `${label}.pdf`,
+                                  doc.fileDataUrl,
+                                  doc.storagePath,
+                                  `Vendor: ${complianceVendor.providerName}\nDocument: ${label}\nExpiry: ${doc?.expiryDate || "-"}`
+                                );
+                              }}
+                            >
+                              View
+                            </GlassButton>
+                            {doc?.status === "submitted" ? (
+                              <>
+                                <GlassButton
+                                  size="xs"
+                                  disabled={disableVendorEditing}
+                                  onClick={() => {
+                                    if (!doc.credentialId) return;
+                                    void reviewCredentialDecision(doc.credentialId, "approved");
+                                  }}
+                                >
+                                  Approve
+                                </GlassButton>
+                                <GlassButton
+                                  variant="secondary"
+                                  size="xs"
+                                  disabled={disableVendorEditing}
+                                  onClick={() => {
+                                    if (!doc.credentialId) return;
+                                    void reviewCredentialDecision(doc.credentialId, "rejected");
+                                  }}
+                                >
+                                  Reject
+                                </GlassButton>
+                              </>
+                            ) : null}
+                            {isClinicLicense && (
                               <GlassButton
                                 size="xs"
                                 disabled={disableVendorEditing}
-                                onClick={() => {
-                                  if (!doc.credentialId) return;
-                                  void reviewCredentialDecision(doc.credentialId, "approved");
-                                }}
+                                onClick={() => setShowClinicUpload((prev) => !prev)}
                               >
-                                Approve
+                                {showClinicUpload ? "Cancel" : getClinicUploadActionLabel(doc)}
                               </GlassButton>
-                              <GlassButton
-                                variant="secondary"
-                                size="xs"
-                                disabled={disableVendorEditing}
-                                onClick={() => {
-                                  if (!doc.credentialId) return;
-                                  void reviewCredentialDecision(doc.credentialId, "rejected");
-                                }}
-                              >
-                                Reject
-                              </GlassButton>
-                            </>
-                          ) : null}
+                            )}
+                          </div>
                         </div>
+                        {isClinicLicense && showClinicUpload && (
+                          <fieldset disabled={disableVendorEditing} className="pt-2 border-t border-slate-200/60 space-y-2">
+                            <label className="glass-input px-3 py-2 cursor-pointer flex items-center justify-between text-sm text-slate-700 rounded-xl border border-slate-200/70 bg-white/80 shadow-sm hover:bg-white">
+                              <input
+                                type="file"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  const dataUrl = await readFileAsDataUrl(file);
+                                  setClinicUploadDraft((prev) => ({
+                                    ...prev, fileName: file.name, fileDataUrl: dataUrl, fileMimeType: file.type,
+                                  }));
+                                }}
+                              />
+                              <span className="font-medium truncate">{clinicUploadDraft.fileName || "Choose file"}</span>
+                              <span className="text-xs uppercase tracking-wider text-slate-400">Browse</span>
+                            </label>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              <input type="text" className="glass-input px-3 py-2 bg-slate-50 text-slate-500 cursor-not-allowed"
+                                placeholder="clinic-license.pdf" value={clinicUploadDraft.fileName} readOnly />
+                              <input type="date" className="glass-input px-3 py-2"
+                                value={clinicUploadDraft.expiryDate}
+                                onChange={(e) => setClinicUploadDraft((prev) => ({ ...prev, expiryDate: e.target.value }))} />
+                            </div>
+                            <GlassButton size="sm" onClick={() => {
+                              if (disableVendorEditing) return;
+                              if (!clinicUploadDraft.fileName || !clinicUploadDraft.expiryDate) return;
+                              submitVendorClinicLicense(complianceVendor.vendorId, {
+                                fileName: clinicUploadDraft.fileName, fileDataUrl: clinicUploadDraft.fileDataUrl,
+                                fileMimeType: clinicUploadDraft.fileMimeType, expiryDate: clinicUploadDraft.expiryDate, submittedBy: "admin",
+                              });
+                              setShowClinicUpload(false);
+                              setClinicUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
+                            }}>
+                              Record Clinic Upload
+                            </GlassButton>
+                          </fieldset>
+                        )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </GlassCard>
               )}

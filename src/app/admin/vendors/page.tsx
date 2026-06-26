@@ -1147,57 +1147,84 @@ export default function VendorManagementPage() {
             </div>
 
             <div className="overflow-y-auto p-8 custom-scrollbar space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="glass-card rounded-2xl p-4">
-                  <p className="text-xs uppercase tracking-widest text-slate-400">Overall Status</p>
-                  <p className="text-2xl font-bold mt-1 text-slate-800">{complianceState.state}</p>
+              {/* Stats bar */}
+              <div className="flex flex-wrap items-center gap-4 p-4 rounded-2xl border border-slate-200/60 bg-white/80">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-widest text-slate-400">Status</span>
+                  <StatusBadge status={complianceState.state} scheme={getBadgeScheme(complianceState.state)} />
                 </div>
-                <div className="glass-card rounded-2xl p-4">
-                  <p className="text-xs uppercase tracking-widest text-slate-400">Pending Reviews</p>
-                  <p className="text-2xl font-bold mt-1 text-amber-700">{compliancePendingCount}</p>
+                <div className="hidden sm:block w-px h-6 bg-slate-200" />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-widest text-slate-400">Pending</span>
+                  <span className="text-lg font-bold text-amber-700">{compliancePendingCount}</span>
                 </div>
-                <div className="glass-card rounded-2xl p-4">
-                  <p className="text-xs uppercase tracking-widest text-slate-400">Borang F (Clinic License)</p>
-                  <p className="text-2xl font-bold mt-1 text-slate-800">{getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE)}</p>
+                <div className="hidden sm:block w-px h-6 bg-slate-200" />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-widest text-slate-400">Clinic License</span>
+                  <StatusBadge
+                    status={getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE)}
+                    scheme={getBadgeScheme(getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE))}
+                  />
                 </div>
-                <div className="glass-card rounded-2xl p-4">
-                  <p className="text-xs uppercase tracking-widest text-slate-400">Doctor APC Files</p>
-                  <p className="text-2xl font-bold mt-1 text-slate-800">{apcDocs.length}</p>
+                <div className="hidden sm:block w-px h-6 bg-slate-200" />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-widest text-slate-400">APC</span>
+                  <span className="text-lg font-bold text-slate-800">{apcDocs.length}</span>
                 </div>
               </div>
 
-              <div className="flex flex-col md:flex-row md:items-center gap-2">
-                <GlassButton
-                  variant={complianceStep === "clinic" ? "primary" : "secondary"}
-                  className="gap-2 justify-center"
-                  onClick={() => setComplianceStep("clinic")}
-                >
-                  Clinic License
-                </GlassButton>
-                <GlassButton
-                  variant={complianceStep === "doctors" ? "primary" : "secondary"}
-                  className="gap-2 justify-center"
-                  onClick={() => setComplianceStep("doctors")}
-                >
-                  Doctors (APC)
-                </GlassButton>
-                <GlassButton
-                  variant={complianceStep === "review" ? "primary" : "secondary"}
-                  className="gap-2 justify-center"
-                  onClick={() => setComplianceStep("review")}
-                >
-                  Review Queue{pendingVendorSubmissions.length ? ` (${pendingVendorSubmissions.length})` : ""}
-                </GlassButton>
+              {/* Pill-style segmented tabs */}
+              <div className="flex justify-center">
+                <div className="inline-flex rounded-full bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
+                      complianceStep === "clinic"
+                        ? "bg-white text-slate-800 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                    onClick={() => setComplianceStep("clinic")}
+                  >
+                    Clinic License
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
+                      complianceStep === "doctors"
+                        ? "bg-white text-slate-800 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                    onClick={() => setComplianceStep("doctors")}
+                  >
+                    Doctors (APC)
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 flex items-center gap-1.5 ${
+                      complianceStep === "review"
+                        ? "bg-white text-slate-800 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                    onClick={() => setComplianceStep("review")}
+                  >
+                    Review Queue
+                    {pendingVendorSubmissions.length > 0 && (
+                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-amber-100 text-amber-700 text-[11px] font-bold">
+                        {pendingVendorSubmissions.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {complianceStep === "clinic" && (
-                <GlassCard className="p-6 space-y-4">
+                <GlassCard className="p-5 space-y-5">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-widest text-slate-400">Clinic License</p>
-                      <p className="text-base font-bold text-slate-800 mt-1">{clinicDoc?.fileName || "Not uploaded"}</p>
-                      <p className="text-xs text-slate-500 mt-1">Expiry: {clinicDoc?.expiryDate || "—"}</p>
-                      <p className="text-xs text-slate-400 mt-1">
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-bold text-slate-800">Clinic License</h3>
+                      <p className="text-sm text-slate-700">{clinicDoc?.fileName || "Not uploaded"}</p>
+                      <p className="text-xs text-slate-500">Expiry: {clinicDoc?.expiryDate || "—"}</p>
+                      <p className="text-xs text-slate-400">
                         {clinicDoc?.submittedBy ? `Submitted by ${clinicDoc.submittedBy}` : "No submission yet"}
                         {clinicDoc?.submittedAt ? ` • ${clinicDoc.submittedAt}` : ""}
                       </p>
@@ -1205,14 +1232,15 @@ export default function VendorManagementPage() {
                         {clinicDoc?.reviewedBy ? `Reviewed by ${clinicDoc.reviewedBy}` : "Not reviewed"}
                         {clinicDoc?.reviewedAt ? ` • ${clinicDoc.reviewedAt}` : ""}
                       </p>
-                      <p className="text-xs text-slate-500 mt-2">
+                      <p className="text-xs text-slate-500 mt-1">
                         <span className="font-semibold text-slate-600">Next action:</span>{" "}
                         {getClinicNextActionMessage(clinicDoc)}
                       </p>
                     </div>
                     <StatusBadge status={getDocumentState(clinicDoc)} scheme={getBadgeScheme(getDocumentState(clinicDoc))} />
                   </div>
-                  <div className="flex flex-col gap-2">
+
+                  <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <GlassButton
                         variant="secondary"
@@ -1274,8 +1302,9 @@ export default function VendorManagementPage() {
                       )}
                     </div>
                   </div>
+
                   {showClinicUpload && (
-                    <fieldset disabled={disableVendorEditing} className="pt-2 border-t border-slate-200/60 space-y-2">
+                    <fieldset disabled={disableVendorEditing} className="pt-3 border-t border-slate-200/60 space-y-3">
                       <label className="glass-input px-3 py-2.5 cursor-pointer flex items-center justify-between text-sm text-slate-700 rounded-xl border border-slate-200/70 bg-white/80 shadow-sm hover:bg-white">
                         <input
                           type="file"
@@ -1312,7 +1341,6 @@ export default function VendorManagementPage() {
                       </div>
                       <GlassButton
                         size="sm"
-                        className="w-full h-8 text-xs"
                         onClick={() => {
                           if (disableVendorEditing) return;
                           if (!clinicUploadDraft.fileName || !clinicUploadDraft.expiryDate) return;
@@ -1335,9 +1363,10 @@ export default function VendorManagementPage() {
               )}
 
               {complianceStep === "doctors" && (
-                <GlassCard className="p-6 space-y-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="glass-card rounded-2xl p-0 overflow-hidden lg:col-span-1">
+                <GlassCard className="p-5 space-y-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
+                    {/* Doctor list - left */}
+                    <div className="rounded-xl border border-slate-200/70 bg-white/80 overflow-hidden">
                       <div className="px-4 py-3 border-b border-slate-200/60 flex items-center justify-between">
                         <p className="text-xs uppercase tracking-widest text-slate-400">Doctors (APC)</p>
                         <span className="text-xs text-slate-500">{doctorMembers.length} doctors</span>
@@ -1373,7 +1402,6 @@ export default function VendorManagementPage() {
                                 <StatusBadge
                                   status={getDocumentState(doc)}
                                   scheme={getBadgeScheme(getDocumentState(doc))}
-                                  className="shrink-0"
                                 />
                               </div>
                             </button>
@@ -1387,7 +1415,8 @@ export default function VendorManagementPage() {
                       </div>
                     </div>
 
-                    <div className="glass-card rounded-2xl p-5 space-y-4 lg:col-span-2">
+                    {/* Doctor detail - right */}
+                    <div className="rounded-xl border border-slate-200/70 bg-white/80 p-5 space-y-4">
                       {selectedDoctor ? (
                         <>
                           <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
@@ -1432,7 +1461,6 @@ export default function VendorManagementPage() {
                                 <GlassButton
                                   variant="secondary"
                                   size="sm"
-                                  className="h-8 px-3 text-xs"
                                   disabled={!selectedDoctorApcDoc?.fileName}
                                   onClick={() => {
                                     if (!selectedDoctorApcDoc?.fileName) return;
@@ -1450,7 +1478,7 @@ export default function VendorManagementPage() {
                                   <GlassButton
                                     variant="ghost"
                                     size="sm"
-                                    className="h-8 px-3 text-xs text-rose-600 hover:text-rose-700"
+                                    className="text-rose-600 hover:text-rose-700"
                                     disabled={!selectedDoctorApcDoc?.credentialId}
                                     onClick={() => {
                                       const credentialId = selectedDoctorApcDoc?.credentialId;
@@ -1470,7 +1498,6 @@ export default function VendorManagementPage() {
                               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60">
                                 <GlassButton
                                   size="sm"
-                                  className="h-8 px-3 text-xs"
                                   disabled={disableVendorEditing}
                                   onClick={() => {
                                     const credentialId = selectedDoctorApcDoc?.credentialId;
@@ -1482,7 +1509,6 @@ export default function VendorManagementPage() {
                                 </GlassButton>
                                 <GlassButton
                                   size="sm"
-                                  className="h-8 px-3 text-xs"
                                   variant="secondary"
                                   disabled={disableVendorEditing}
                                   onClick={() => {
@@ -1561,9 +1587,9 @@ export default function VendorManagementPage() {
 
               {complianceStep === "review" && (
                 <>
-                  <GlassCard className="p-4 space-y-3">
+                  <GlassCard className="p-5 space-y-4">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-widest text-slate-400">Vendor Submitted Review Queue</p>
+                      <h3 className="text-sm font-bold text-slate-800">Vendor Submitted Review Queue</h3>
                       <StatusBadge status={`${pendingVendorSubmissions.length} pending`} scheme={pendingVendorSubmissions.length > 0 ? "warning" : "success"} />
                     </div>
                     {pendingVendorSubmissions.length > 0 ? (

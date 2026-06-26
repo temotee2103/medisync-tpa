@@ -73,14 +73,6 @@ const getExpiryStatus = (expiryDate?: string) => {
   return "Valid";
 };
 
-const getStatusStyles = (status: string) => {
-  if (status === "Expired" || status === "Missing" || status === "Rejected" || status === "Blocked") {
-    return "bg-rose-100 text-rose-700";
-  }
-  if (status === "Expiring" || status === "Review") return "bg-amber-100 text-amber-700";
-  return "bg-emerald-100 text-emerald-700";
-};
-
 const getBadgeScheme = (status: string) => {
   if (status === "Expired" || status === "Missing" || status === "Rejected" || status === "Blocked") return "danger" as const;
   if (status === "Expiring" || status === "Review") return "warning" as const;

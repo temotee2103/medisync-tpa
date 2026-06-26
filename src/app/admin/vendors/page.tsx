@@ -1203,14 +1203,6 @@ export default function VendorManagementPage() {
                 </div>
                 <div className="hidden sm:block w-px h-6 bg-slate-200" />
                 <div className="flex items-center gap-2">
-                  <span className="text-xs uppercase tracking-widest text-slate-400">Clinic</span>
-                  <StatusBadge
-                    status={getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE)}
-                    scheme={getBadgeScheme(getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE))}
-                  />
-                </div>
-                <div className="hidden sm:block w-px h-6 bg-slate-200" />
-                <div className="flex items-center gap-2">
                   <span className="text-xs uppercase tracking-widest text-slate-400">SSM</span>
                   <StatusBadge
                     status={getDocumentState(ssmDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.SSM)}
@@ -1219,10 +1211,26 @@ export default function VendorManagementPage() {
                 </div>
                 <div className="hidden sm:block w-px h-6 bg-slate-200" />
                 <div className="flex items-center gap-2">
-                  <span className="text-xs uppercase tracking-widest text-slate-400">Borang B</span>
+                  <span className="text-xs uppercase tracking-widest text-slate-400">Borang F/B</span>
                   <StatusBadge
-                    status={getDocumentState(borangBDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B)}
-                    scheme={getBadgeScheme(getDocumentState(borangBDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B))}
+                    status={
+                      (getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE) === "Valid" ||
+                       getDocumentState(borangBDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B) === "Valid")
+                        ? "Approved"
+                        : getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE) === "Review" ||
+                          getDocumentState(borangBDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B) === "Review"
+                          ? "Review"
+                          : "Missing"
+                    }
+                    scheme={
+                      (getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE) === "Valid" ||
+                       getDocumentState(borangBDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B) === "Valid")
+                        ? "success"
+                        : getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE) === "Review" ||
+                          getDocumentState(borangBDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B) === "Review"
+                          ? "warning"
+                          : "danger"
+                    }
                   />
                 </div>
                 <div className="hidden sm:block w-px h-6 bg-slate-200" />

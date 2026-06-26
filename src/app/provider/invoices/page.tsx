@@ -158,7 +158,7 @@ export default function ProviderInvoicePage() {
   const [consultationFee, setConsultationFee] = useState("");
   const [medicationFee, setMedicationFee] = useState("");
   const [injectionFee, setInjectionFee] = useState("");
-  const [investigationFee, setInvestigationFee] = useState("");
+  const [diagnosisFee, setDiagnosisFee] = useState("");
   const [procedureFee, setProcedureFee] = useState("");
   const [immunizationFee, setImmunizationFee] = useState("");
   const [adminDraftTotalAmount, setAdminDraftTotalAmount] = useState("");
@@ -196,28 +196,27 @@ export default function ProviderInvoicePage() {
   const [selectedChargeItems, setSelectedChargeItems] = useState<Record<string, string[]>>({
     medication: [],
     injection: [],
-    investigation: [],
+    diagnosis: [],
     procedure: [],
     immunization: [],
   });
   const [chargePickerDraft, setChargePickerDraft] = useState<Record<string, string>>({
     medication: "",
     injection: "",
-    investigation: "",
+    diagnosis: "",
     procedure: "",
     immunization: "",
   });
   const [chargeCustomDraft, setChargeCustomDraft] = useState<Record<string, string>>({
     medication: "",
     injection: "",
-    investigation: "",
+    diagnosis: "",
     procedure: "",
     immunization: "",
   });
   const [medicationOptions, setMedicationOptions] = useState<string[]>([]);
   const [injectionOptions, setInjectionOptions] = useState<string[]>([]);
   const [immunizationOptions, setImmunizationOptions] = useState<string[]>([]);
-  const [investigationOptions, setInvestigationOptions] = useState<string[]>([]);
   const [frequencyOptions, setFrequencyOptions] = useState<string[]>([]);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
   const [diagnosisOptions, setDiagnosisOptions] = useState<string[]>([]);
@@ -234,7 +233,7 @@ export default function ProviderInvoicePage() {
       return {
         medication: [],
         injection: [],
-        investigation: [],
+        diagnosis: [],
         procedure: [],
         immunization: [],
       };
@@ -243,8 +242,8 @@ export default function ProviderInvoicePage() {
     return {
       medication: Array.isArray(source.medication) ? source.medication.filter((item): item is string => typeof item === "string") : [],
       injection: Array.isArray(source.injection) ? source.injection.filter((item): item is string => typeof item === "string") : [],
-      investigation: Array.isArray(source.investigation)
-        ? source.investigation.filter((item): item is string => typeof item === "string")
+      diagnosis: Array.isArray(source.diagnosis)
+        ? source.diagnosis.filter((item): item is string => typeof item === "string")
         : [],
       procedure: Array.isArray(source.procedure) ? source.procedure.filter((item): item is string => typeof item === "string") : [],
       immunization: Array.isArray(source.immunization)
@@ -380,10 +379,10 @@ export default function ProviderInvoicePage() {
   useEffect(() => {
     if (!isHydrated) return;
     let alive = true;
-    fetchCatalogItemRows("investigations")
+    fetchCatalogItemRows("diagnosis")
       .then((rows) => {
         if (!alive) return;
-        setInvestigationOptions(
+        setDiagnosisOptions(
           rows
             .filter((r) => r.status === "Active")
             .map((r) => {
@@ -396,7 +395,7 @@ export default function ProviderInvoicePage() {
       })
       .catch(() => {
         if (!alive) return;
-        setInvestigationOptions([]);
+        setDiagnosisOptions([]);
       });
     return () => {
       alive = false;
@@ -484,7 +483,7 @@ export default function ProviderInvoicePage() {
         setMedicationDescription(typeof raw.medicationDescription === "string" ? raw.medicationDescription : "");
         setMedicationFee(typeof raw.medicationFee === "string" ? raw.medicationFee : "");
         setInjectionFee(typeof raw.injectionFee === "string" ? raw.injectionFee : "");
-        setInvestigationFee(typeof raw.investigationFee === "string" ? raw.investigationFee : "");
+        setDiagnosisFee(typeof raw.diagnosisFee === "string" ? raw.diagnosisFee : "");
         setProcedureFee(typeof raw.procedureFee === "string" ? raw.procedureFee : "");
         setImmunizationFee(typeof raw.immunizationFee === "string" ? raw.immunizationFee : "");
         setAdminDraftTotalAmount(typeof raw.adminDraftTotalAmount === "string" ? raw.adminDraftTotalAmount : "");
@@ -646,7 +645,7 @@ export default function ProviderInvoicePage() {
     Number(consultationFee || 0) +
     Number(medicationFee || 0) +
     Number(injectionFee || 0) +
-    Number(investigationFee || 0) +
+    Number(diagnosisFee || 0) +
     Number(procedureFee || 0) +
     Number(immunizationFee || 0);
   const draftTotalAmountNumber = canEditClinicalFields
@@ -766,7 +765,7 @@ export default function ProviderInvoicePage() {
         : {
             medication: [],
             injection: [],
-            investigation: [],
+            diagnosis: [],
             procedure: [],
             immunization: [],
           };
@@ -793,7 +792,7 @@ export default function ProviderInvoicePage() {
     setConsultationFee(String(breakdown.consultationFee ?? ""));
     setMedicationFee(String(breakdown.medicationFee ?? ""));
     setInjectionFee(String(breakdown.injectionFee ?? ""));
-    setInvestigationFee(String(breakdown.investigationFee ?? ""));
+    setDiagnosisFee(String(breakdown.diagnosisFee ?? ""));
     setProcedureFee(String(breakdown.procedureFee ?? ""));
     setImmunizationFee(String(breakdown.immunizationFee ?? ""));
     setAdminDraftTotalAmount(String(editingProviderClaim.totalAmount || ""));
@@ -812,14 +811,14 @@ export default function ProviderInvoicePage() {
     setChargePickerDraft({
       medication: "",
       injection: "",
-      investigation: "",
+      diagnosis: "",
       procedure: "",
       immunization: "",
     });
     setChargeCustomDraft({
       medication: "",
       injection: "",
-      investigation: "",
+      diagnosis: "",
       procedure: "",
       immunization: "",
     });
@@ -952,7 +951,7 @@ export default function ProviderInvoicePage() {
             consultationFee,
             medicationFee,
             injectionFee,
-            investigationFee,
+            diagnosisFee,
             procedureFee,
             immunizationFee,
             selectedChargeItems,
@@ -1037,7 +1036,7 @@ export default function ProviderInvoicePage() {
         setConsultationFee("");
         setMedicationFee("");
         setInjectionFee("");
-        setInvestigationFee("");
+        setDiagnosisFee("");
         setProcedureFee("");
         setImmunizationFee("");
         setServiceType("Outpatient (OP)");
@@ -1054,21 +1053,21 @@ export default function ProviderInvoicePage() {
         setSelectedChargeItems({
           medication: [],
           injection: [],
-          investigation: [],
+          diagnosis: [],
           procedure: [],
           immunization: [],
         });
         setChargePickerDraft({
           medication: "",
           injection: "",
-          investigation: "",
+          diagnosis: "",
           procedure: "",
           immunization: "",
         });
         setChargeCustomDraft({
           medication: "",
           injection: "",
-          investigation: "",
+          diagnosis: "",
           procedure: "",
           immunization: "",
         });
@@ -1125,7 +1124,7 @@ export default function ProviderInvoicePage() {
       medicationDescription,
       medicationFee,
       injectionFee,
-      investigationFee,
+      diagnosisFee,
       procedureFee,
       immunizationFee,
       adminDraftTotalAmount,
@@ -1164,7 +1163,7 @@ export default function ProviderInvoicePage() {
     setMedicationDescription("");
     setMedicationFee("");
     setInjectionFee("");
-    setInvestigationFee("");
+    setDiagnosisFee("");
     setProcedureFee("");
     setImmunizationFee("");
     setAdminDraftTotalAmount("");
@@ -1183,21 +1182,21 @@ export default function ProviderInvoicePage() {
     setSelectedChargeItems({
       medication: [],
       injection: [],
-      investigation: [],
+      diagnosis: [],
       procedure: [],
       immunization: [],
     });
     setChargePickerDraft({
       medication: "",
       injection: "",
-      investigation: "",
+      diagnosis: "",
       procedure: "",
       immunization: "",
     });
     setChargeCustomDraft({
       medication: "",
       injection: "",
-      investigation: "",
+      diagnosis: "",
       procedure: "",
       immunization: "",
     });
@@ -1419,12 +1418,12 @@ export default function ProviderInvoicePage() {
       options: injectionOptions,
     },
     {
-      key: "investigation",
-      label: "Investigation (RM)",
-      amount: investigationFee,
-      setAmount: setInvestigationFee,
-      pickerLabel: "Investigation",
-      options: investigationOptions,
+      key: "diagnosis",
+      label: "Diagnosis (RM)",
+      amount: diagnosisFee,
+      setAmount: setDiagnosisFee,
+      pickerLabel: "Diagnosis",
+      options: diagnosisOptions,
     },
     {
       key: "procedure",
@@ -1623,11 +1622,11 @@ export default function ProviderInvoicePage() {
                       setChargeCustomDraft((prev) => ({ ...prev, injection: "" }));
                       setSelectedChargeItemMeta((prev) => ({ ...prev, injection: {} }));
                     }
-                    if (!isSectionAllowed(nextServiceType, "investigation")) {
-                      setInvestigationFee("");
-                      setSelectedChargeItems((prev) => ({ ...prev, investigation: [] }));
-                      setChargePickerDraft((prev) => ({ ...prev, investigation: "" }));
-                      setChargeCustomDraft((prev) => ({ ...prev, investigation: "" }));
+                    if (!isSectionAllowed(nextServiceType, "diagnosis")) {
+                      setDiagnosisFee("");
+                      setSelectedChargeItems((prev) => ({ ...prev, diagnosis: [] }));
+                      setChargePickerDraft((prev) => ({ ...prev, diagnosis: "" }));
+                      setChargeCustomDraft((prev) => ({ ...prev, diagnosis: "" }));
                     }
                     if (!isSectionAllowed(nextServiceType, "procedure")) {
                       setProcedureFee("");

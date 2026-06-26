@@ -267,11 +267,10 @@ export default function CompliancePage() {
   };
 
   const DOC_TYPE_CONFIGS = [
-    { key: "clinic_license", label: "Provider License (Borang F)", icon: Building2Icon },
-    { key: "borang_b", label: "Borang B", icon: FileText },
-    { key: "borang_c", label: "Borang C", icon: FileText },
-    { key: "ssm", label: "SSM Certificate", icon: FileText },
-    { key: "tcm", label: "TCM Certificate", icon: FileText },
+    { key: "clinic_license", label: "Clinic License (Borang F)", icon: Building2Icon, required: true, nonExpiry: true, group: "main" },
+    { key: "borang_b", label: "Borang B", icon: FileText, required: false, nonExpiry: true, group: "main" },
+    { key: "ssm", label: "SSM Certificate", icon: FileText, required: true, nonExpiry: true, group: "main" },
+    { key: "tcm", label: "TCM Certificate (Optional)", icon: FileText, required: false, nonExpiry: false, group: "optional" },
   ] as const;
 
   const getComplianceDoc = (docKey: string) => {
@@ -286,7 +285,9 @@ export default function CompliancePage() {
   const submitDocUpload = async (docType: string) => {
     if (!session?.vendorId) return;
     const upload = docUploads[docType];
-    if (!upload?.fileName || !upload?.expiryDate) {
+    const config = DOC_TYPE_CONFIGS.find(c => c.key === docType);
+    const needsExpiry = !config?.nonExpiry;
+    if (!upload?.fileName || (needsExpiry && !upload?.expiryDate)) {
       setDocUploadField(docType, "error", "Please select a file and enter the expiry date.");
       return;
     }
@@ -408,7 +409,7 @@ export default function CompliancePage() {
                     Open
                   </GlassButton>
                 </div>
-                
+                {!config.nonExpiry && (
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Expiry Date</label>
                   <div className="relative">
@@ -420,6 +421,7 @@ export default function CompliancePage() {
                     />
                   </div>
                 </div>
+                )}
               </div>
 
               <div className="pt-6 border-t border-slate-100">
@@ -447,20 +449,22 @@ export default function CompliancePage() {
                     }}
                   />
                 </label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                <div className={config.nonExpiry ? "mt-3" : "grid grid-cols-1 md:grid-cols-2 gap-3 mt-3"}>
                   <input
                     type="text"
-                    className="glass-input px-3 py-2 bg-slate-50"
+                    className={config.nonExpiry ? "glass-input px-3 py-2 bg-slate-50 w-full" : "glass-input px-3 py-2 bg-slate-50"}
                     placeholder="Selected filename"
                     value={uploadState.fileName}
                     readOnly
                   />
+                  {!config.nonExpiry && (
                   <input
                     type="date"
                     className="glass-input px-3 py-2"
                     value={uploadState.expiryDate}
                     onChange={(e) => setDocUploadField(config.key, "expiryDate", e.target.value)}
                   />
+                  )}
                 </div>
                 <div className="mt-3">
                   <GlassButton

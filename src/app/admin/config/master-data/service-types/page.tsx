@@ -23,7 +23,7 @@ const sections: Array<{ key: CatalogSection; label: string }> = [
   { key: "consultation", label: "Consultation" },
   { key: "medication", label: "Medication" },
   { key: "injection", label: "Injection" },
-  { key: "investigation", label: "Investigation" },
+  { key: "diagnosis", label: "Diagnosis" },
   { key: "procedure", label: "Procedure" },
   { key: "immunization", label: "Immunization" },
 ];
@@ -120,19 +120,15 @@ export default function ServiceTypeRulesPage() {
                   const enabled = rule.allowedSections.includes(s.key);
                   return (
                     <td key={s.key} className="px-4 py-3">
-                      <button
-                        type="button"
-                        className={cn(
-                          "px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors",
-                          enabled
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                            : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100"
-                        )}
+                      <GlassButton
+                        size="xs"
+                        variant={enabled ? "secondary" : "ghost"}
+                        className={enabled ? "" : "text-slate-500 border-slate-200"}
                         onClick={() => toggle(rule.serviceType, s.key)}
                         disabled={isServiceTypeReadOnly}
                       >
                         {enabled ? "ON" : "OFF"}
-                      </button>
+                      </GlassButton>
                     </td>
                   );
                 })}

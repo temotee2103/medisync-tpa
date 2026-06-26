@@ -118,7 +118,7 @@ export default function SystemConfigPage() {
     { 
       title: "Master Data", 
       items: [
-        { name: "Master Data Catalogs", desc: "Injections, investigations, frequency, units", icon: Database },
+        { name: "Master Data Catalogs", desc: "Injections, diagnosis, frequency, units", icon: Database },
         { name: "Hospital Network", desc: "Manage partner medical facilities", icon: Hospital },
         { name: "Procedure Catalog", desc: "Standard rates and ICD codes", icon: Stethoscope },
         { name: "Policy Templates", desc: "Define coverage rules and limits", icon: Shield },

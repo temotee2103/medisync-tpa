@@ -11,7 +11,7 @@ import { isAdminReadOnly } from "@/lib/adminPermissions";
 const items = [
   {
     title: "Catalogs",
-    description: "Medications, injections, immunizations, investigations, frequency, units",
+    description: "Medications, injections, immunizations, diagnosis, frequency, units",
     href: "/admin/medications",
     icon: Pill,
   },

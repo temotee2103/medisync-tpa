@@ -2,8 +2,11 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { GlassSelect } from "@/components/ui/GlassSelect";
 import { ResponsiveDataView } from "@/components/ui/ResponsiveDataView";
 import { MobileRecordCard } from "@/components/ui/MobileRecordCard";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { showToast } from "@/components/ui/Toast";
 import { 
   UserPlus, 
   Search, 
@@ -273,7 +276,6 @@ function UserManagementPageContent() {
   const [corporateFilter, setCorporateFilter] = useState<"all" | "active" | "inactive" | "expired_passport">(initialCorporateFilter);
   const [vendorFilter, setVendorFilter] = useState<"all" | "active" | "inactive">("all");
   const [adminFilter, setAdminFilter] = useState<"all" | "active" | "inactive">("all");
-  const [actionFeedback, setActionFeedback] = useState<ActionFeedback | null>(null);
   const [pendingAdminDeletion, setPendingAdminDeletion] = useState<AdminDirectoryEntry | null>(null);
   const [pendingPasswordReset, setPendingPasswordReset] = useState<AdminDirectoryEntry | null>(null);
   const [pendingMemberPasswordReset, setPendingMemberPasswordReset] = useState<{ type: "corporate"; member: MemberDirectoryEntry } | { type: "vendor"; member: VendorMemberDirectoryEntry } | null>(null);
@@ -325,9 +327,6 @@ function UserManagementPageContent() {
   const canOperateUsersPage = adminRoleResolved ? canOperateAdminPage(resolvedAdminRole, ADMIN_USERS_ROUTE) : false;
   const canDeleteUsersResource = adminRoleResolved ? canDeleteAdminResource(resolvedAdminRole) : false;
   const isUsersDataLoading = !usersDataLoaded;
-  const showActionFeedback = useCallback((message: string, tone: ActionFeedback["tone"] = "success") => {
-    setActionFeedback({ tone, message });
-  }, []);
 
   const refreshPassportRenewals = useCallback(async () => {
     try {
@@ -442,6 +441,15 @@ function UserManagementPageContent() {
 
   const filteredCorporateMembers = useMemo(() => {
     let base = corporateMembers;
+    const normalized = searchTerm.trim().toLowerCase();
+    if (normalized) {
+      base = base.filter((member) =>
+        (member.staffId || "").toLowerCase().includes(normalized) ||
+        (member.fullName || "").toLowerCase().includes(normalized) ||
+        (member.email || "").toLowerCase().includes(normalized) ||
+        (member.phone || "").toLowerCase().includes(normalized)
+      );
+    }
     if (selectedCorporateCompanyId !== "all") {
       base = base.filter((member) => member.companyId === selectedCorporateCompanyId);
     }
@@ -459,10 +467,19 @@ function UserManagementPageContent() {
       });
     }
     return base;
-  }, [corporateMembers, corporateFilter, selectedCorporateCompanyId]);
+  }, [corporateMembers, corporateFilter, selectedCorporateCompanyId, searchTerm]);
 
   const filteredVendorMembers = useMemo(() => {
     let base = vendorMembers;
+    const normalized = searchTerm.trim().toLowerCase();
+    if (normalized) {
+      base = base.filter((member) =>
+        (member.fullName || "").toLowerCase().includes(normalized) ||
+        (member.email || "").toLowerCase().includes(normalized) ||
+        (member.phone || "").toLowerCase().includes(normalized) ||
+        (member.memberId || "").toLowerCase().includes(normalized)
+      );
+    }
     if (selectedVendorScopeId !== "all") {
       base = base.filter((member) => member.vendorId === selectedVendorScopeId);
     }
@@ -473,7 +490,7 @@ function UserManagementPageContent() {
       return base.filter((member) => member.status === "Disabled");
     }
     return base;
-  }, [vendorMembers, vendorFilter, selectedVendorScopeId]);
+  }, [vendorMembers, vendorFilter, selectedVendorScopeId, searchTerm]);
 
   const filteredAdminMembersByStatus = useMemo(() => {
     if (adminFilter === "active") {
@@ -558,9 +575,9 @@ function UserManagementPageContent() {
         password: "",
       });
       setIsModalOpen(false);
-      showActionFeedback(`Admin account ${newAdminForm.adminId} created successfully.`);
+      showToast(`Admin account ${newAdminForm.adminId} created successfully.`, "success");
     } catch (error) {
-      showActionFeedback(getErrorMessage(error, "Unable to create admin user."), "error");
+      showToast(getErrorMessage(error, "Unable to create admin user."), "error");
     }
   };
 
@@ -571,9 +588,9 @@ function UserManagementPageContent() {
         ...member,
         status: nextStatus,
       });
-      showActionFeedback(`${member.staffId} is now ${nextStatus}.`);
+      showToast(`${member.staffId} is now ${nextStatus}.`, "success");
     } catch (error) {
-      showActionFeedback(getErrorMessage(error, "Unable to update member status."), "error");
+      showToast(getErrorMessage(error, "Unable to update member status."), "error");
     }
   };
 
@@ -584,9 +601,9 @@ function UserManagementPageContent() {
         ...member,
         status: nextStatus,
       });
-      showActionFeedback(`${member.memberId} is now ${nextStatus}.`);
+      showToast(`${member.memberId} is now ${nextStatus}.`, "success");
     } catch (error) {
-      showActionFeedback(getErrorMessage(error, "Unable to update vendor member status."), "error");
+      showToast(getErrorMessage(error, "Unable to update vendor member status."), "error");
     }
   };
 
@@ -928,10 +945,11 @@ function UserManagementPageContent() {
     });
     setMemberEditError("");
     setIsMemberEditModalOpen(false);
-    showActionFeedback(
+    showToast(
       editingMemberType === "corporate"
         ? `Member ${editingMemberDraft.staffId} updated successfully.`
-        : `Vendor member ${editingMemberDraft.memberId} updated successfully.`
+        : `Vendor member ${editingMemberDraft.memberId} updated successfully.`,
+      "success"
     );
   };
 
@@ -946,9 +964,9 @@ function UserManagementPageContent() {
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Unable to reset member password.");
       }
-      showActionFeedback(`Password for ${member.staffId} has been reset. Please inform the user of their new password.`);
+      showToast(`Password for ${member.staffId} has been reset. Please inform the user of their new password.`);
     } catch (error) {
-      showActionFeedback(getErrorMessage(error, "Unable to reset member password."), "error");
+      showToast(getErrorMessage(error, "Unable to reset member password."), "error");
     }
   };
 
@@ -972,19 +990,19 @@ function UserManagementPageContent() {
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Unable to reset vendor member password.");
       }
-      showActionFeedback(`Password for ${member.memberId} has been reset. Please inform the user of their new password.`);
+      showToast(`Password for ${member.memberId} has been reset. Please inform the user of their new password.`);
     } catch (error) {
-      showActionFeedback(getErrorMessage(error, "Unable to reset vendor member password."), "error");
+      showToast(getErrorMessage(error, "Unable to reset vendor member password."), "error");
     }
   };
 
   const resetAdminMemberPassword = async (member: AdminDirectoryEntry, newPassword: string) => {
     if (!canOperateUsersPage) {
-      showActionFeedback("You do not have permission to reset passwords.", "error");
+      showToast("You do not have permission to reset passwords.", "error");
       return;
     }
     if (!member.profileId) {
-      showActionFeedback("Admin profile is missing.", "error");
+      showToast("Admin profile is missing.", "error");
       return;
     }
     try {
@@ -997,20 +1015,20 @@ function UserManagementPageContent() {
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Unable to reset admin password.");
       }
-      showActionFeedback(`Password for ${member.adminId} has been reset. Please inform the user of their new password.`);
+      showToast(`Password for ${member.adminId} has been reset. Please inform the user of their new password.`);
     } catch (error) {
-      showActionFeedback(getErrorMessage(error, "Unable to reset admin password."), "error");
+      showToast(getErrorMessage(error, "Unable to reset admin password."), "error");
     }
   };
 
   const confirmResetPassword = async () => {
     if (!pendingPasswordReset) return;
     if (!resetPasswordValue.trim()) {
-      showActionFeedback("Enter a new password.", "error");
+      showToast("Enter a new password.", "error");
       return;
     }
     if (resetPasswordValue !== resetPasswordConfirm) {
-      showActionFeedback("Passwords do not match.", "error");
+      showToast("Passwords do not match.", "error");
       return;
     }
     await resetAdminMemberPassword(pendingPasswordReset, resetPasswordValue);
@@ -1028,11 +1046,11 @@ function UserManagementPageContent() {
   const confirmMemberPasswordReset = async () => {
     if (!pendingMemberPasswordReset) return;
     if (!resetPasswordValue.trim()) {
-      showActionFeedback("Enter a new password.", "error");
+      showToast("Enter a new password.", "error");
       return;
     }
     if (resetPasswordValue !== resetPasswordConfirm) {
-      showActionFeedback("Passwords do not match.", "error");
+      showToast("Passwords do not match.", "error");
       return;
     }
     if (pendingMemberPasswordReset.type === "corporate") {
@@ -1054,7 +1072,7 @@ function UserManagementPageContent() {
   const deleteAdminMember = async (member: AdminDirectoryEntry) => {
     if (!canDeleteUsersResource) return;
     if (!member.profileId) {
-      showActionFeedback("Admin profile is missing.", "error");
+      showToast("Admin profile is missing.", "error");
       return;
     }
     setPendingAdminDeletion(member);
@@ -1063,7 +1081,7 @@ function UserManagementPageContent() {
   const confirmDeleteAdminMember = async () => {
     if (!pendingAdminDeletion?.profileId) {
       setPendingAdminDeletion(null);
-      showActionFeedback("Admin profile is missing.", "error");
+      showToast("Admin profile is missing.", "error");
       return;
     }
     try {
@@ -1077,10 +1095,10 @@ function UserManagementPageContent() {
         throw new Error(payload.error || "Unable to delete admin user.");
       }
       await refreshAdminSnapshot();
-      showActionFeedback(`Admin account ${pendingAdminDeletion.adminId} deleted successfully.`);
+      showToast(`Admin account ${pendingAdminDeletion.adminId} deleted successfully.`);
       setPendingAdminDeletion(null);
     } catch (error) {
-      showActionFeedback(getErrorMessage(error, "Unable to delete admin user."), "error");
+      showToast(getErrorMessage(error, "Unable to delete admin user."), "error");
     }
   };
 
@@ -1095,7 +1113,7 @@ function UserManagementPageContent() {
   const submitPassportRenewal = async () => {
     if (!passportRenewMember || !passportRenewDraft.expiryDate || !passportRenewDraft.fileName) return;
     if (!passportRenewMember.profileId) {
-      showActionFeedback("Member profile is missing. Create member Auth/profile first before submitting a passport renewal request.", "error");
+      showToast("Member profile is missing. Create member Auth/profile first before submitting a passport renewal request.", "error");
       return;
     }
     try {
@@ -1115,9 +1133,9 @@ function UserManagementPageContent() {
       await refreshPassportRenewals();
       setPassportRenewMember(null);
       setPassportRenewDraft({ expiryDate: "", fileName: "" });
-      showActionFeedback(`Passport renewal request submitted for ${passportRenewMember.staffId}.`);
+      showToast(`Passport renewal request submitted for ${passportRenewMember.staffId}.`);
     } catch (error) {
-      showActionFeedback(getErrorMessage(error, "Unable to submit passport renewal request."), "error");
+      showToast(getErrorMessage(error, "Unable to submit passport renewal request."), "error");
     }
   };
 
@@ -1156,9 +1174,9 @@ function UserManagementPageContent() {
       }
 
       await refreshPassportRenewals();
-      showActionFeedback(`${target.staffId} passport renewal ${status === "approved" ? "approved" : "rejected"}.`);
+      showToast(`${target.staffId} passport renewal ${status === "approved" ? "approved" : "rejected"}.`);
     } catch (error) {
-      showActionFeedback(getErrorMessage(error, "Unable to review passport renewal request."), "error");
+      showToast(getErrorMessage(error, "Unable to review passport renewal request."), "error");
     }
   };
 
@@ -1272,34 +1290,6 @@ function UserManagementPageContent() {
           <p className="text-slate-500">Monitor corporate, vendor, and admin access from one place.</p>
         </div>
       </div>
-
-      {actionFeedback && (
-        <div
-          className={cn(
-            "rounded-2xl border px-4 py-3 flex items-start justify-between gap-3",
-            actionFeedback.tone === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-rose-200 bg-rose-50 text-rose-700"
-          )}
-          role={actionFeedback.tone === "error" ? "alert" : "status"}
-        >
-          <div className="flex items-start gap-3">
-            {actionFeedback.tone === "success" ? (
-              <CheckCircle2 className="w-5 h-5 mt-0.5 shrink-0" />
-            ) : (
-              <XCircle className="w-5 h-5 mt-0.5 shrink-0" />
-            )}
-            <p className="text-sm font-medium">{actionFeedback.message}</p>
-          </div>
-          <button
-            type="button"
-            className="text-xs font-semibold uppercase tracking-wide opacity-70 hover:opacity-100"
-            onClick={() => setActionFeedback(null)}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
 
       <div className="flex flex-wrap gap-3">
         <GlassButton
@@ -1520,27 +1510,39 @@ function UserManagementPageContent() {
           }
         />
         <GlassCard className="overflow-hidden p-0 border-white/40">
-          <div className="px-6 py-4 border-b border-white/60 bg-white/40">
-            <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold mr-3">Corporate Scope</label>
-            <select
-              className="glass-input px-3 py-2 bg-transparent text-sm w-full mt-3 md:mt-0 md:w-auto md:min-w-72"
-              value={selectedCorporateCompanyId}
-              onChange={(e) => setSelectedCorporateCompanyId(e.target.value)}
-            >
-              <option value="all">All Companies</option>
-              {companies.map((company) => (
-                <option key={company.companyId} value={company.companyId}>
-                  {company.companyId} - {company.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <ResponsiveDataView
-            desktop={<div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="px-6 py-4 border-b border-white/60 bg-white/40 flex flex-col md:flex-row md:items-center gap-3">
+            <div className="flex-1 flex items-center gap-3 flex-wrap">
+              <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Corporate Scope</label>
+              <GlassSelect
+                className="glass-input px-3 py-2 bg-transparent text-sm md:min-w-72"
+                value={selectedCorporateCompanyId}
+                onChange={(v) => setSelectedCorporateCompanyId(v)}
+                options={[
+                  { label: "All Companies", value: "all" },
+                  ...companies.map((company) => ({
+                    label: `${company.companyId} - ${company.name}`,
+                    value: company.companyId,
+                  })),
+                ]}
+              />
+            <div className="relative flex-1 min-w-48">
+              <input
+                type="text"
+                placeholder="Search by name, staff ID, email..."
+                className="w-full pl-10 pr-4 py-2 glass-input outline-none focus:ring-2 focus:ring-sky-500/50 text-sm"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
+              </div>
+              </div>
+              </div>
+              <ResponsiveDataView
+              desktop={<div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-white/40 border-b border-white/50">
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Member</th>
+              <tr className="bg-white/40 border-b border-white/50">
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Member</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Staff ID</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Passport Expiry</th>
@@ -1672,20 +1674,32 @@ function UserManagementPageContent() {
           </button>
         </div>
         <GlassCard className="overflow-hidden p-0 border-white/40">
-          <div className="px-6 py-4 border-b border-white/60 bg-white/40">
-            <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold mr-3">Vendor Scope</label>
-            <select
-              className="glass-input px-3 py-2 bg-transparent text-sm w-full mt-3 md:mt-0 md:w-auto md:min-w-72"
-              value={selectedVendorScopeId}
-              onChange={(e) => setSelectedVendorScopeId(e.target.value)}
-            >
-              <option value="all">All Vendors</option>
-              {vendorScopeLabels.map((vendor) => (
-                <option key={vendor.vendorId} value={vendor.vendorId}>
-                  {vendor.label}
-                </option>
-              ))}
-            </select>
+          <div className="px-6 py-4 border-b border-white/60 bg-white/40 flex flex-col md:flex-row md:items-center gap-3">
+            <div className="flex-1 flex items-center gap-3 flex-wrap">
+              <label className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Vendor Scope</label>
+              <GlassSelect
+                className="glass-input px-3 py-2 bg-transparent text-sm md:min-w-72"
+                value={selectedVendorScopeId}
+                onChange={(v) => setSelectedVendorScopeId(v)}
+                options={[
+                  { label: "All Vendors", value: "all" },
+                  ...vendorScopeLabels.map((vendor) => ({
+                    label: vendor.label,
+                    value: vendor.vendorId,
+                  })),
+                ]}
+              />
+              <div className="relative flex-1 min-w-48">
+                <input
+                  type="text"
+                  placeholder="Search by name, email, member ID..."
+                  className="w-full pl-10 pr-4 py-2 glass-input outline-none focus:ring-2 focus:ring-sky-500/50 text-sm"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
+              </div>
+            </div>
           </div>
           <ResponsiveDataView
             desktop={<div className="overflow-x-auto">
@@ -1842,12 +1856,17 @@ function UserManagementPageContent() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 z-10" />
           </div>
           <div className="flex gap-2">
-            <select className="glass-input px-4 py-2 bg-transparent outline-none">
-              <option>All Roles</option>
-              <option>Super Admin</option>
-              <option>Admin</option>
-              <option>Accountant</option>
-            </select>
+            <GlassSelect
+              className="glass-input px-4 py-2 bg-transparent outline-none"
+              value=""
+              onChange={() => {}}
+              placeholder="All Roles"
+              options={[
+                { label: "Super Admin", value: "super_admin" },
+                { label: "Admin", value: "admin" },
+                { label: "Accountant", value: "accountant" },
+              ]}
+            />
           </div>
         </GlassCard>
         <ResponsiveDataView
@@ -1976,18 +1995,12 @@ function UserManagementPageContent() {
                     <div className="space-y-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h4 className="text-xl font-bold text-slate-800 truncate">{selectedMemberProfile.member.fullName}</h4>
-                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                          {selectedMemberProfile.member.status}
-                        </span>
+                        <StatusBadge status={selectedMemberProfile.member.status} scheme="success" />
                         {selectedMemberProfile.type === "corporate" && (
-                          <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-600 border border-slate-200">
-                            {selectedMemberProfile.member.relationship || "Employee"}
-                          </span>
+                          <StatusBadge status={selectedMemberProfile.member.relationship || "Employee"} scheme="neutral" />
                         )}
                         {selectedMemberProfile.type === "vendor" && selectedMemberProfile.member.role && (
-                          <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-600 border border-slate-200">
-                            {selectedMemberProfile.member.role}
-                          </span>
+                          <StatusBadge status={selectedMemberProfile.member.role} scheme="neutral" />
                         )}
                       </div>
                       <p className="text-sm text-slate-500 truncate">{selectedMemberProfile.member.email}</p>
@@ -2118,9 +2131,7 @@ function UserManagementPageContent() {
                                   <p className="text-sm font-semibold text-slate-800">{dependent.fullName}</p>
                                   <p className="text-xs text-slate-500">{dependent.relationship || "Dependent"}</p>
                                 </div>
-                                <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                                  {dependent.status}
-                                </span>
+                                <StatusBadge status={dependent.status} scheme="success" />
                               </div>
                               <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
                                 <div>
@@ -2202,9 +2213,7 @@ function UserManagementPageContent() {
                           <ShieldCheck className="h-4 w-4 text-sky-500" />
                           <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">Plan Configuration</h4>
                         </div>
-                        <span className="inline-flex items-center rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-sky-700 border border-sky-100">
-                          {formatPlanTypeLabel(selectedCorporatePlan.type)}
-                        </span>
+                        <StatusBadge status={formatPlanTypeLabel(selectedCorporatePlan.type)} scheme="info" />
                       </div>
 
                       {selectedCorporatePlan.type === "lump_sum" ? (
@@ -2412,22 +2421,20 @@ function UserManagementPageContent() {
                       <label className="text-sm font-medium text-slate-700">Contact Number</label>
                       <div className="flex gap-3">
                         <div className="relative w-28 shrink-0">
-                          <select
+                          <GlassSelect
                             className="w-full glass-input px-3 py-2.5 bg-transparent"
                             value={editingMemberPhoneParts.countryCode}
-                            onChange={(e) =>
+                            onChange={(v) =>
                               setEditingMemberDraft((prev) => ({
                                 ...prev,
-                                phone: joinPhoneNumber(e.target.value, editingMemberPhoneParts.localNumber),
+                                phone: joinPhoneNumber(v, editingMemberPhoneParts.localNumber),
                               }))
                             }
-                          >
-                            {DIAL_CODES.map((code) => (
-                              <option key={code} value={code}>
-                                {code}
-                              </option>
-                            ))}
-                          </select>
+                            options={DIAL_CODES.map((code) => ({
+                              label: code,
+                              value: code,
+                            }))}
+                          />
                         </div>
                         <input
                           type="tel"
@@ -2447,42 +2454,41 @@ function UserManagementPageContent() {
                       <>
                         <div className="space-y-1.5">
                           <label className="text-sm font-medium text-slate-700">Nationality</label>
-                          <select
+                          <GlassSelect
                             className="w-full glass-input px-4 py-2.5 bg-transparent"
                             value={editingMemberDraft.nationality}
-                            onChange={(e) =>
+                            onChange={(v) =>
                               setEditingMemberDraft((prev) => ({
                                 ...prev,
-                                nationality: e.target.value,
-                                idType: e.target.value === "Malaysia" ? "NRIC" : "Passport",
+                                nationality: v,
+                                idType: v === "Malaysia" ? "NRIC" : "Passport",
                               }))
                             }
-                          >
-                            {NATIONALITIES.map((nationality) => (
-                              <option key={nationality} value={nationality}>
-                                {nationality}
-                              </option>
-                            ))}
-                          </select>
+                            options={NATIONALITIES.map((nationality) => ({
+                              label: nationality,
+                              value: nationality,
+                            }))}
+                          />
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-sm font-medium text-slate-700">ID Type</label>
-                          <select
+                          <GlassSelect
                             className="w-full glass-input px-4 py-2.5 bg-transparent"
                             value={editingMemberDraft.idType}
-                            onChange={(e) =>
+                            onChange={(v) =>
                               setEditingMemberDraft((prev) => ({
                                 ...prev,
-                                idType: e.target.value as "NRIC" | "Passport",
+                                idType: v as "NRIC" | "Passport",
                                 nricPassport: "",
                                 passportExpiry: "",
                                 passportFileName: "",
                               }))
                             }
-                          >
-                            <option value="NRIC">NRIC</option>
-                            <option value="Passport">Passport</option>
-                          </select>
+                            options={[
+                              { label: "NRIC", value: "NRIC" },
+                              { label: "Passport", value: "Passport" },
+                            ]}
+                          />
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-sm font-medium text-slate-700">{editingMemberDraft.idType === "NRIC" ? "NRIC No." : "Passport No."}</label>

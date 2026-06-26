@@ -12,7 +12,24 @@ export async function POST(request: Request) {
     if (adminError) return NextResponse.json({ error: adminError.message }, { status: 403 });
     if (!isAdmin) return NextResponse.json({ error: "Admin only." }, { status: 403 });
 
-    const body = (await request.json()) as Record<string, unknown>;
+    const contentType = request.headers.get("content-type") || "";
+    let body: Record<string, unknown>;
+    let ssmFileDataUrl: string | null = null;
+
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await request.formData();
+      const jsonStr = formData.get("body")?.toString() || "{}";
+      body = JSON.parse(jsonStr);
+      const ssmFile = formData.get("ssmFile") as File | null;
+      if (ssmFile && ssmFile.size > 0) {
+        const bytes = await ssmFile.arrayBuffer();
+        const base64 = Buffer.from(bytes).toString("base64");
+        ssmFileDataUrl = `data:${ssmFile.type};base64,${base64}`;
+      }
+    } else {
+      body = (await request.json()) as Record<string, unknown>;
+    }
+
     const companyId = String(body.companyId || "").trim();
     const name = String(body.name || "").trim();
     const hrName = String(body.hrName || "").trim();

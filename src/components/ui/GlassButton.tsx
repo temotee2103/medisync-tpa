@@ -3,8 +3,8 @@ import React from "react";
 import { Loader2 } from "lucide-react";
 
 interface GlassButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "ghost";
-  size?: "default" | "sm" | "icon";
+  variant?: "primary" | "secondary" | "ghost" | "danger";
+  size?: "xs" | "sm" | "default" | "icon";
   isLoading?: boolean;
 }
 
@@ -22,10 +22,12 @@ export function GlassButton({
     primary: "bg-sky-500 hover:bg-sky-600 text-white shadow-lg shadow-sky-500/30 border-transparent",
     secondary: "bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 border-transparent",
     ghost: "bg-transparent hover:bg-white/20 text-sky-800 border-transparent",
+    danger: "bg-rose-500 hover:bg-rose-600 text-white shadow-lg shadow-rose-500/30 border-transparent",
   };
   const sizes = {
-    default: "px-6 py-3",
+    xs: "px-2.5 py-1.5 text-xs",
     sm: "px-3 py-1.5 text-sm",
+    default: "px-6 py-3",
     icon: "h-10 w-10 p-0",
   };
 

@@ -48,6 +48,13 @@ export type CompanyPlanConfig = {
     sharedLimit: boolean;
     maxChildren: number;
   };
+  /** Named plans for bulk import — members can reference plan name instead of per-category config */
+  companyPlans?: Array<{
+    name: string;
+    type: CompanyPlanType;
+    lumpSumLimit: number;
+    categories: Record<string, { enabled: boolean; limit: number }>;
+  }>;
 };
 
 export const createDefaultPlanConfig = (): CompanyPlanConfig => ({
@@ -104,6 +111,7 @@ export const normalizeCompanyPlanConfig = (planConfig?: Partial<CompanyPlanConfi
           ? Math.max(0, Math.floor(incoming.dependents.maxChildren))
           : defaults.dependents.maxChildren,
     },
+    companyPlans: Array.isArray(incoming.companyPlans) ? incoming.companyPlans : undefined,
   };
 };
 

@@ -2,8 +2,9 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
-import { cn } from "@/lib/utils";
-import { readExcel, parseSingleColumnList, parseInvestigations, parseFrequencyAndUnits } from "@/lib/catalog/importers";
+import { GlassSelect } from "@/components/ui/GlassSelect";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { readExcel, parseSingleColumnList, parseDiagnosis, parseFrequencyAndUnits } from "@/lib/catalog/importers";
 import type { CatalogItem, CatalogStatus, CatalogType } from "@/lib/catalog/types";
 import {
   fetchCatalogItemRows,
@@ -33,7 +34,7 @@ const baselineByType: Partial<Record<CatalogType, string>> = {
   medications: "/Comment & Materials/Medication List V1.xlsx",
   injections: "/Comment & Materials/GP Injection v1.xls",
   immunizations: "/Comment & Materials/GP Immunization v2.xls",
-  investigations: "/Comment & Materials/GP Investigation.xls",
+  diagnosis: "/Comment & Materials/GP Diagnosis.xls",
 };
 
 const headerByType: Partial<Record<CatalogType, string>> = {
@@ -55,9 +56,9 @@ const titleByType: Record<CatalogType, { title: string; subtitle: string }> = {
     title: "Immunization Catalog",
     subtitle: "Manage immunization dropdown items used by provider claims.",
   },
-  investigations: {
-    title: "Investigation Catalog",
-    subtitle: "Manage investigation dropdown items (full + short label) used by provider claims.",
+  diagnosis: {
+    title: "Diagnosis Catalog",
+    subtitle: "Manage diagnosis dropdown items (full + short label) used by provider claims.",
   },
   diagnoses: {
     title: "Diagnosis Catalog",
@@ -85,7 +86,7 @@ const getErrorMessage = (error: unknown, fallback: string) =>
 
 export default function CatalogPanel({ catalogType }: Props) {
   const [items, setItems] = useState<CatalogItem[]>([]);
-  const [investigationMeta, setInvestigationMeta] = useState<Record<string, { shortName: string }>>({});
+  const [diagnosisMeta, setDiagnosisMeta] = useState<Record<string, { shortName: string }>>({});
   const [adminRole, setAdminRole] = useState<AdminRole>("accountant");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -125,8 +126,8 @@ export default function CatalogPanel({ catalogType }: Props) {
     setLoading(true);
     setError("");
     try {
-      if (catalogType === "investigations") {
-        const rows = await fetchCatalogItemRows("investigations");
+      if (catalogType === "diagnosis") {
+        const rows = await fetchCatalogItemRows("diagnosis");
         setItems(
           rows.map((row) => ({
             id: row.id,
@@ -136,16 +137,16 @@ export default function CatalogPanel({ catalogType }: Props) {
             updatedAt: row.updated_at,
           }))
         );
-        setInvestigationMeta(Object.fromEntries(rows.map((r) => [r.id, { shortName: getShortName(r) }])));
+        setDiagnosisMeta(Object.fromEntries(rows.map((r) => [r.id, { shortName: getShortName(r) }])));
       } else {
         const next = await fetchCatalogItems(catalogType);
         setItems(next);
-        setInvestigationMeta({});
+        setDiagnosisMeta({});
       }
     } catch (error: unknown) {
       setError(getErrorMessage(error, "Unable to load catalog."));
       setItems([]);
-      setInvestigationMeta({});
+      setDiagnosisMeta({});
     } finally {
       setLoading(false);
     }
@@ -182,8 +183,8 @@ export default function CatalogPanel({ catalogType }: Props) {
     setImportRows([]);
     const workbook = await readExcel(file);
 
-    if (catalogType === "investigations") {
-      const result = parseInvestigations(workbook);
+    if (catalogType === "diagnosis") {
+      const result = parseDiagnosis(workbook);
       if (result.errors.length) throw new Error(result.errors.join(" "));
       setImportRows(result.rows.map((r) => ({ name: r.name, shortName: r.shortName || "" })));
       setImportPreview(result.sample.map((r) => ({ Name: r.name, Short: r.shortName || "" })));
@@ -212,15 +213,15 @@ export default function CatalogPanel({ catalogType }: Props) {
     setLoading(true);
     setError("");
     try {
-      if (catalogType === "investigations") {
+      if (catalogType === "diagnosis") {
         const rows = importRows as Array<{ name: string; shortName?: string }>;
         const mapped = rows.map((r) => ({ name: r.name, data: { shortName: (r.shortName || "").trim() || undefined } }));
         if (importMode === "replace") {
-          await replaceCatalogWithData("investigations", mapped);
-          await audit("catalog_replace", { catalog_type: "investigations", file: importFile.name, count: mapped.length });
+          await replaceCatalogWithData("diagnosis", mapped);
+          await audit("catalog_replace", { catalog_type: "diagnosis", file: importFile.name, count: mapped.length });
         } else {
-          await mergeCatalogWithData("investigations", mapped);
-          await audit("catalog_import", { catalog_type: "investigations", file: importFile.name, count: mapped.length, mode: "merge" });
+          await mergeCatalogWithData("diagnosis", mapped);
+          await audit("catalog_import", { catalog_type: "diagnosis", file: importFile.name, count: mapped.length, mode: "merge" });
         }
         closeImport();
         await load();
@@ -251,11 +252,11 @@ export default function CatalogPanel({ catalogType }: Props) {
     setLoading(true);
     setError("");
     try {
-      if (catalogType === "investigations") {
-        await mergeCatalogWithData("investigations", [
+      if (catalogType === "diagnosis") {
+        await mergeCatalogWithData("diagnosis", [
           { name, data: { shortName: addShortName.trim() || undefined } },
         ]);
-        await audit("catalog_add", { catalog_type: "investigations", name, shortName: addShortName.trim() || undefined });
+        await audit("catalog_add", { catalog_type: "diagnosis", name, shortName: addShortName.trim() || undefined });
       } else {
         await insertCatalogItem(catalogType, name);
         await audit("catalog_add", { catalog_type: catalogType, name });
@@ -351,18 +352,15 @@ export default function CatalogPanel({ catalogType }: Props) {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <select
-            className="glass-input px-4 py-2.5"
+          <GlassSelect
             value={status}
-            onChange={(e) => setStatus(e.target.value as CatalogStatus | "All")}
-          >
-            <option value="All">All</option>
-            {statusOptions.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+            options={[
+              { label: "All", value: "All" },
+              ...statusOptions.map((s) => ({ label: s, value: s })),
+            ]}
+            onChange={(value) => setStatus(value as CatalogStatus | "All")}
+            placeholder="Filter status"
+          />
         </div>
 
         {/* Desktop table */}
@@ -371,7 +369,7 @@ export default function CatalogPanel({ catalogType }: Props) {
             <thead className="text-xs text-slate-500 uppercase bg-slate-50/50">
               <tr>
                 <th className="px-4 py-3 font-bold">Name</th>
-                {catalogType === "investigations" && <th className="px-4 py-3 font-bold">Short</th>}
+                {catalogType === "diagnosis" && <th className="px-4 py-3 font-bold">Short</th>}
                 <th className="px-4 py-3 font-bold">Status</th>
                 <th className="px-4 py-3 text-right font-bold">Actions</th>
               </tr>
@@ -380,26 +378,20 @@ export default function CatalogPanel({ catalogType }: Props) {
               {filtered.map((item) => (
                 <tr key={item.id} className="hover:bg-white/50 transition-colors">
                   <td className="px-4 py-3 font-medium text-slate-800">{item.name}</td>
-                  {catalogType === "investigations" && (
-                    <td className="px-4 py-3 text-slate-600">{investigationMeta[item.id]?.shortName || "-"}</td>
+                  {catalogType === "diagnosis" && (
+                    <td className="px-4 py-3 text-slate-600">{diagnosisMeta[item.id]?.shortName || "-"}</td>
                   )}
                   <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
-                        item.status === "Active"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-slate-100 text-slate-500"
-                      )}
-                    >
-                      {item.status}
-                    </span>
+                    <StatusBadge
+                      status={item.status}
+                      scheme={item.status === "Active" ? "success" : "neutral"}
+                    />
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-2">
                       <GlassButton
-                        variant="ghost"
-                        size="sm"
+                        variant="secondary"
+                        size="xs"
                         onClick={() => void toggleStatus(item)}
                         disabled={isCatalogReadOnly || loading}
                       >
@@ -411,7 +403,7 @@ export default function CatalogPanel({ catalogType }: Props) {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={catalogType === "investigations" ? 4 : 3}>
+                  <td className="px-4 py-6 text-slate-500" colSpan={catalogType === "diagnosis" ? 4 : 3}>
                     {loading ? "Loading..." : "No items found."}
                   </td>
                 </tr>
@@ -426,7 +418,7 @@ export default function CatalogPanel({ catalogType }: Props) {
             <thead className="text-xs text-slate-500 uppercase bg-slate-50/50">
               <tr>
                 <th className="sticky left-0 z-10 bg-slate-50/50 px-4 py-3 font-bold whitespace-nowrap">Name</th>
-                {catalogType === "investigations" && <th className="px-4 py-3 font-bold whitespace-nowrap">Short</th>}
+                {catalogType === "diagnosis" && <th className="px-4 py-3 font-bold whitespace-nowrap">Short</th>}
                 <th className="px-4 py-3 font-bold whitespace-nowrap">Status</th>
                 <th className="px-4 py-3 text-right font-bold whitespace-nowrap">Actions</th>
               </tr>
@@ -435,26 +427,20 @@ export default function CatalogPanel({ catalogType }: Props) {
               {filtered.map((item) => (
                 <tr key={item.id} className="hover:bg-white/50 transition-colors">
                   <td className="sticky left-0 z-[5] bg-white px-4 py-3 font-medium text-slate-800 whitespace-nowrap">{item.name}</td>
-                  {catalogType === "investigations" && (
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{investigationMeta[item.id]?.shortName || "-"}</td>
+                  {catalogType === "diagnosis" && (
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{diagnosisMeta[item.id]?.shortName || "-"}</td>
                   )}
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <span
-                      className={cn(
-                        "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
-                        item.status === "Active"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-slate-100 text-slate-500"
-                      )}
-                    >
-                      {item.status}
-                    </span>
+                    <StatusBadge
+                      status={item.status}
+                      scheme={item.status === "Active" ? "success" : "neutral"}
+                    />
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <div className="flex justify-end gap-2">
                       <GlassButton
-                        variant="ghost"
-                        size="sm"
+                        variant="secondary"
+                        size="xs"
                         onClick={() => void toggleStatus(item)}
                         disabled={isCatalogReadOnly || loading}
                       >
@@ -466,7 +452,7 @@ export default function CatalogPanel({ catalogType }: Props) {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={catalogType === "investigations" ? 4 : 3}>
+                  <td className="px-4 py-6 text-slate-500" colSpan={catalogType === "diagnosis" ? 4 : 3}>
                     {loading ? "Loading..." : "No items found."}
                   </td>
                 </tr>
@@ -490,7 +476,7 @@ export default function CatalogPanel({ catalogType }: Props) {
                   <label className="text-sm font-medium text-slate-700">Name</label>
                   <input className="w-full glass-input px-4 py-2.5" value={addName} onChange={(e) => setAddName(e.target.value)} />
                 </div>
-                {catalogType === "investigations" && (
+                {catalogType === "diagnosis" && (
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700">Short Name</label>
                     <input className="w-full glass-input px-4 py-2.5" value={addShortName} onChange={(e) => setAddShortName(e.target.value)} />
@@ -520,9 +506,9 @@ export default function CatalogPanel({ catalogType }: Props) {
                 <h3 className="text-lg font-bold text-slate-800">Upload Excel</h3>
                 <p className="text-sm text-slate-500">Preview, then import into Supabase.</p>
               </div>
-              <button className="p-2 rounded-lg hover:bg-slate-200/60 text-slate-600" onClick={closeImport}>
+              <GlassButton variant="secondary" size="icon" onClick={closeImport}>
                 <X className="w-4 h-4" />
-              </button>
+              </GlassButton>
             </div>
             <div className="p-6 space-y-4 overflow-y-auto">
               <fieldset disabled={isCatalogReadOnly} className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px] gap-3">
@@ -543,14 +529,15 @@ export default function CatalogPanel({ catalogType }: Props) {
                     }
                   }}
                 />
-                <select
-                  className="glass-input px-4 py-2.5"
+                <GlassSelect
                   value={importMode}
-                  onChange={(e) => setImportMode(e.target.value as ImportMode)}
-                >
-                  <option value="merge">Merge</option>
-                  <option value="replace">Replace</option>
-                </select>
+                  options={[
+                    { label: "Merge", value: "merge" },
+                    { label: "Replace", value: "replace" },
+                  ]}
+                  onChange={(value) => setImportMode(value as ImportMode)}
+                  placeholder="Import mode"
+                />
               </fieldset>
 
               {importError && (

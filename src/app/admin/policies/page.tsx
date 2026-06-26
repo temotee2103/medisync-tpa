@@ -2,6 +2,8 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { GlassSelect } from "@/components/ui/GlassSelect";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { 
   Search, 
   User, 
@@ -288,18 +290,13 @@ export default function PolicySearchPage() {
                 />
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 z-10" />
               </div>
-              <select
-                className="w-full md:w-64 glass-select px-3 py-2.5 text-sm"
+              <GlassSelect
                 value={companyFilter}
-                onChange={(e) => setCompanyFilter(e.target.value)}
-              >
-                <option value="all">All Companies</option>
-                {companies.map((company) => (
-                  <option key={company.companyId} value={company.companyId}>
-                    {company.name}
-                  </option>
-                ))}
-              </select>
+                options={[{ label: "All Companies", value: "all" }, ...companies.map((c) => ({ label: c.name, value: c.companyId }))]}
+                onChange={setCompanyFilter}
+                className="w-full md:w-64"
+                placeholder="All Companies"
+              />
             </div>
           </GlassCard>
 
@@ -319,14 +316,7 @@ export default function PolicySearchPage() {
                       key={policy.id}
                       title={policy.holder}
                       subtitle={`${policy.companyName} · ${policy.id}`}
-                      badge={
-                        <span className={cn(
-                          "text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full",
-                          policy.status === 'Active' ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
-                        )}>
-                          {policy.status}
-                        </span>
-                      }
+                      badge={<StatusBadge status={policy.status} scheme={policy.status === "Active" ? "success" : "neutral"} />}
                       meta={
                         <>
                           <span>Plan: {policy.plan}</span>
@@ -370,12 +360,9 @@ export default function PolicySearchPage() {
                 </h2>
                 <p className="text-sm text-slate-500 mt-1">Select existing member and assign a new policy.</p>
               </div>
-              <button
-                onClick={() => setIsAddPolicyModalOpen(false)}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+              <GlassButton variant="ghost" size="icon" onClick={() => setIsAddPolicyModalOpen(false)}>
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
 
             <div className="overflow-y-auto p-8 custom-scrollbar space-y-6">
@@ -414,26 +401,28 @@ export default function PolicySearchPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700">Plan</label>
-                  <select
-                    className="w-full glass-input px-3 py-2.5 bg-transparent"
+                  <GlassSelect
                     value={addPolicyDraft.plan}
-                    onChange={(e) => setAddPolicyDraft((prev) => ({ ...prev, plan: e.target.value }))}
-                  >
-                    <option>Gold Family Plus</option>
-                    <option>Silver Corporate</option>
-                    <option>Platinum Global</option>
-                  </select>
+                    options={[
+                      { label: "Gold Family Plus", value: "Gold Family Plus" },
+                      { label: "Silver Corporate", value: "Silver Corporate" },
+                      { label: "Platinum Global", value: "Platinum Global" },
+                    ]}
+                    onChange={(v) => setAddPolicyDraft((prev) => ({ ...prev, plan: v }))}
+                    placeholder="Select Plan"
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700">Status</label>
-                  <select
-                    className="w-full glass-input px-3 py-2.5 bg-transparent"
+                  <GlassSelect
                     value={addPolicyDraft.status}
-                    onChange={(e) => setAddPolicyDraft((prev) => ({ ...prev, status: e.target.value as "Active" | "Lapsed" }))}
-                  >
-                    <option value="Active">Active</option>
-                    <option value="Lapsed">Lapsed</option>
-                  </select>
+                    options={[
+                      { label: "Active", value: "Active" },
+                      { label: "Lapsed", value: "Lapsed" },
+                    ]}
+                    onChange={(v) => setAddPolicyDraft((prev) => ({ ...prev, status: v as "Active" | "Lapsed" }))}
+                    placeholder="Select Status"
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700">Expiry Date</label>
@@ -488,12 +477,9 @@ export default function PolicySearchPage() {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setIsInfoModalOpen(false)}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+              <GlassButton variant="ghost" size="icon" onClick={() => setIsInfoModalOpen(false)}>
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
 
             <div className="overflow-y-auto p-8 custom-scrollbar space-y-8">
@@ -604,12 +590,9 @@ export default function PolicySearchPage() {
                 </h2>
                 <p className="text-sm text-slate-500 mt-1">Configure entitlements and limits (Audit Trail Enabled).</p>
               </div>
-              <button 
-                onClick={() => setIsEditModalOpen(false)}
-                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-              >
+              <GlassButton variant="ghost" size="icon" onClick={() => setIsEditModalOpen(false)}>
                 <XCircle className="w-6 h-6" />
-              </button>
+              </GlassButton>
             </div>
 
             {/* Content */}

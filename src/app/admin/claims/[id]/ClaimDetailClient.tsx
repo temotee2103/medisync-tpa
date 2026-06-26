@@ -2,6 +2,7 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { fetchAdminSession, type AdminSession } from "@/lib/adminSession";
 import { ArrowLeft, FileText, CheckCircle, XCircle, AlertTriangle, Download, Maximize2, Trash2 } from "lucide-react";
 import Link from "next/link";
@@ -42,7 +43,7 @@ type ClaimDetailClientProps = {
 const chargeSections = [
   { key: "medication", label: "Medication" },
   { key: "injection", label: "Injection" },
-  { key: "investigation", label: "Investigation" },
+  { key: "diagnosis", label: "Diagnosis" },
   { key: "procedure", label: "Procedure" },
   { key: "immunization", label: "Immunization" },
 ] as const;
@@ -61,6 +62,37 @@ const formatProviderClaimStatusLabel = (status?: string) => {
       return "Rejected";
     default:
       return "Submitted";
+  }
+};
+
+const getLifecycleBadgeScheme = (status?: string): "success" | "warning" | "danger" | "neutral" | "info" => {
+  switch (normalizeUnifiedClaimStatus(status)) {
+    case "approved":
+      return "success";
+    case "rejected":
+      return "danger";
+    case "in_process":
+      return "info";
+    case "request_additional_information":
+      return "warning";
+    case "submitted":
+    default:
+      return "neutral";
+  }
+};
+
+const getProviderBadgeScheme = (status?: string): "success" | "warning" | "danger" | "neutral" | "info" => {
+  switch (normalizeProviderClaimStatus(status)) {
+    case "approved":
+      return "success";
+    case "rejected":
+      return "danger";
+    case "in_process":
+      return "info";
+    case "request_additional_information":
+      return "warning";
+    default:
+      return "neutral";
   }
 };
 
@@ -99,7 +131,7 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
       [
         { key: "medication", label: "Medication", amount: Number(claim?.medicationFee || 0) },
         { key: "injection", label: "Injection", amount: Number(claim?.injectionFee || 0) },
-        { key: "investigation", label: "Investigation", amount: Number(claim?.investigationFee || 0) },
+        { key: "diagnosis", label: "Diagnosis", amount: Number(claim?.diagnosisFee || 0) },
         { key: "procedure", label: "Procedure", amount: Number(claim?.procedureFee || 0) },
         { key: "immunization", label: "Immunization", amount: Number(claim?.immunizationFee || 0) },
       ].filter((entry) => entry.amount > 0 || (selectedChargeItems[entry.key] || []).length > 0),
@@ -447,9 +479,10 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
           <GlassCard className="space-y-4 p-5">
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-lg font-bold text-slate-800">{providerClaim.patientName || "Unlinked member"}</h2>
-              <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-700">
-                {formatProviderClaimStatusLabel(providerClaim.status)}
-              </span>
+              <StatusBadge
+                status={formatProviderClaimStatusLabel(providerClaim.status)}
+                scheme={getProviderBadgeScheme(providerClaim.status)}
+              />
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
@@ -546,9 +579,10 @@ export default function ClaimDetailClient({ claimId }: ClaimDetailClientProps) {
           <div>
             <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
               Claim #{claimId}
-              <span className="text-sm font-medium px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full">
-                {formatUnifiedClaimStatus(claim?.lifecycleStatus || claim?.status)}
-              </span>
+              <StatusBadge
+                status={formatUnifiedClaimStatus(claim?.lifecycleStatus || claim?.status)}
+                scheme={getLifecycleBadgeScheme(claim?.lifecycleStatus || claim?.status)}
+              />
             </h1>
             <p className="text-sm text-slate-500">
               Submitted on {formatDateDisplay(claim?.submittedAt || claim?.createdAt || claim?.date || "") || "Unknown"}{" "}

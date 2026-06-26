@@ -21,6 +21,9 @@ import {
   UserPlus,
   Trash2
 } from "lucide-react";
+import { GlassSelect } from "@/components/ui/GlassSelect";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { showToast } from "@/components/ui/Toast";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { downloadText } from "@/lib/download";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -78,12 +81,21 @@ const getStatusStyles = (status: string) => {
   return "bg-emerald-100 text-emerald-700";
 };
 
-const getDocumentState = (doc?: providerSession.VendorComplianceDocument | providerSession.VendorDoctorApc) => {
+const getBadgeScheme = (status: string) => {
+  if (status === "Expired" || status === "Missing" || status === "Rejected" || status === "Blocked") return "danger" as const;
+  if (status === "Expiring" || status === "Review") return "warning" as const;
+  if (status === "Valid" || status === "Active") return "success" as const;
+  return "neutral" as const;
+};
+
+const getDocumentState = (doc?: providerSession.VendorComplianceDocument | providerSession.VendorDoctorApc, docType?: providerSession.ProviderCredentialDocType | string) => {
   if (!doc || doc.status === "missing" || !doc.fileName) return "Missing";
   if (doc.status === "rejected") return "Rejected";
+  if (doc.status === "submitted" && String(doc.reviewedBy || "").trim() === "") return "Review";
+  // Non-expiry doc types: once approved, always valid (never check expiry)
+  if (docType && providerSession.NON_EXPIRY_DOC_TYPES.has(docType as providerSession.ProviderCredentialDocType)) return "Valid";
   const expiry = getExpiryStatus(doc.expiryDate);
   if (expiry === "Expired") return "Expired";
-  if (doc.status === "submitted") return "Review";
   if (expiry === "Expiring") return "Expiring";
   return "Valid";
 };
@@ -160,13 +172,28 @@ const downloadComplianceDocument = async (
 
 const getComplianceState = (vendor?: providerSession.ProviderDirectoryEntry | null) => {
   if (!vendor) return { state: "Missing", clinicStatus: "Missing", apcStatuses: [] as string[] };
-  const clinicStatus = getDocumentState(vendor.compliance?.clinicLicense);
-  const apcStatuses = (vendor.compliance?.doctorApcs ?? []).map((doc) => getDocumentState(doc));
-  const hasBlocked = [clinicStatus, ...apcStatuses].some((status) =>
-    ["Missing", "Rejected", "Expired"].includes(status)
-  );
-  const hasReview = [clinicStatus, ...apcStatuses].some((status) => status === "Review");
-  const hasExpiring = [clinicStatus, ...apcStatuses].some((status) => status === "Expiring");
+  const DOC = providerSession.PROVIDER_CREDENTIAL_DOC_TYPES;
+  const clinicStatus = getDocumentState(vendor.compliance?.clinicLicense, DOC.CLINIC_LICENSE);
+  const apcStatuses = (vendor.compliance?.doctorApcs ?? []).map((doc) => getDocumentState(doc, DOC.APC));
+  
+  // SSM: required
+  const ssmDoc = (vendor.compliance?.documents || []).find((d) => d.docType === DOC.SSM);
+  const ssmStatus = getDocumentState(ssmDoc, DOC.SSM);
+  
+  // Borang B: check
+  const borangBDoc = (vendor.compliance?.documents || []).find((d) => d.docType === DOC.BORANG_B);
+  const borangBStatus = getDocumentState(borangBDoc, DOC.BORANG_B);
+  
+  // Blocked states
+  const hasBlockedApc = apcStatuses.some((s) => ["Missing", "Rejected", "Expired"].includes(s));
+  const hasBlockedSsm = ["Missing", "Rejected"].includes(ssmStatus);
+  // Either Borang B or Borang F must be approved
+  const hasBlockedBOrF = ["Missing", "Rejected"].includes(borangBStatus) && ["Missing", "Rejected"].includes(clinicStatus);
+  const hasBlocked = hasBlockedApc || hasBlockedSsm || hasBlockedBOrF || apcStatuses.length === 0;
+  
+  const allStatuses = [clinicStatus, ssmStatus, borangBStatus, ...apcStatuses];
+  const hasReview = allStatuses.some((status) => status === "Review");
+  const hasExpiring = apcStatuses.some((status) => status === "Expiring");
   const state = hasBlocked ? "Blocked" : hasReview ? "Review" : hasExpiring ? "Expiring" : "Valid";
   return { state, clinicStatus, apcStatuses };
 };
@@ -535,13 +562,14 @@ export default function VendorManagementPage() {
   const renderVendorGridActions = (vendor: providerSession.ProviderDirectoryEntry, vendorPendingCount: number) => (
     <>
       {vendorPendingCount > 0 && (
-        <GlassButton className="h-9 px-3 text-xs font-semibold" onClick={() => openComplianceModal(vendor.vendorId)}>
+        <GlassButton size="sm" onClick={() => openComplianceModal(vendor.vendorId)}>
           Approve ({vendorPendingCount})
         </GlassButton>
       )}
       <GlassButton
         variant="ghost"
-        className="h-9 w-9 p-0 flex items-center justify-center text-sky-600 hover:text-sky-700"
+        size="icon"
+        className="flex items-center justify-center text-sky-600 hover:text-sky-700"
         title="Edit vendor"
         onClick={() => openVendorEditor(vendor, "details")}
       >
@@ -549,7 +577,8 @@ export default function VendorManagementPage() {
       </GlassButton>
       <GlassButton
         variant="ghost"
-        className="h-9 w-9 p-0 flex items-center justify-center"
+        size="icon"
+        className="flex items-center justify-center"
         title="Compliance actions"
         onClick={() => openComplianceModal(vendor.vendorId)}
       >
@@ -557,7 +586,8 @@ export default function VendorManagementPage() {
       </GlassButton>
       <GlassButton
         variant="ghost"
-        className="h-9 w-9 p-0 flex items-center justify-center"
+        size="icon"
+        className="flex items-center justify-center"
         title={vendor.status === "Active" ? "Disable vendor" : "Activate vendor"}
         onClick={() => toggleVendorStatus(vendor)}
         disabled={disableVendorEditing}
@@ -566,7 +596,8 @@ export default function VendorManagementPage() {
       </GlassButton>
       <GlassButton
         variant="ghost"
-        className="h-9 w-9 p-0 flex items-center justify-center"
+        size="icon"
+        className="flex items-center justify-center"
         title="Add member"
         onClick={() => openAddVendorMember(vendor)}
         disabled={disableVendorEditing}
@@ -649,9 +680,7 @@ export default function VendorManagementPage() {
           <GlassCard className="p-0 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200/60 flex items-center justify-between">
               <h2 className="text-sm font-bold text-slate-800">Vendors Grid View</h2>
-              <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full ${pendingReviews.length > 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                {pendingReviews.length} pending compliance review
-              </span>
+              <StatusBadge status={`${pendingReviews.length} pending compliance review`} scheme={pendingReviews.length > 0 ? "warning" : "success"} />
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
@@ -674,10 +703,10 @@ export default function VendorManagementPage() {
                         <td className="px-6 py-4 font-semibold text-slate-800">{vendor.providerName}</td>
                         <td className="px-6 py-4 text-slate-500">{vendor.vendorId}</td>
                         <td className="px-6 py-4">
-                          <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${vendor.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{vendor.status}</span>
+                          <StatusBadge status={vendor.status} scheme={vendor.status === "Active" ? "success" : "neutral"} />
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${getStatusStyles(compliance)}`}>{compliance}</span>
+                          <StatusBadge status={compliance} scheme={getBadgeScheme(compliance)} />
                         </td>
                         <td className="px-6 py-4 text-slate-500">{vendorPendingCount}</td>
                         <td className="px-6 py-4"><div className="flex justify-end gap-2">{renderVendorGridActions(vendor, vendorPendingCount)}</div></td>
@@ -698,9 +727,7 @@ export default function VendorManagementPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between px-1">
               <h2 className="text-sm font-bold text-slate-800">Vendors Grid View</h2>
-              <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full ${pendingReviews.length > 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                {pendingReviews.length} pending
-              </span>
+              <StatusBadge status={`${pendingReviews.length} pending`} scheme={pendingReviews.length > 0 ? "warning" : "success"} />
             </div>
             {filteredVendors.map((vendor) => {
               const vendorPendingCount = pendingReviews.filter((item) => item.vendorId === vendor.vendorId).length;
@@ -710,7 +737,7 @@ export default function VendorManagementPage() {
                   key={vendor.vendorId}
                   title={vendor.providerName}
                   subtitle={vendor.vendorId}
-                  badge={<span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${vendor.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{vendor.status}</span>}
+                  badge={<StatusBadge status={vendor.status} scheme={vendor.status === "Active" ? "success" : "neutral"} />}
                   footer={<div className="flex flex-wrap justify-end gap-2">{renderVendorGridActions(vendor, vendorPendingCount)}</div>}
                 >
                   <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
@@ -837,22 +864,16 @@ export default function VendorManagementPage() {
                       <label className="text-sm font-medium text-slate-700">Contact Number</label>
                       <div className="flex gap-3">
                         <div className="relative w-28 shrink-0">
-                          <select
-                            className="w-full glass-input px-3 py-2.5 bg-transparent"
+                          <GlassSelect
                             value={vendorPhoneParts.countryCode}
-                            onChange={(e) =>
+                            options={DIAL_CODES.map((code) => ({ label: code, value: code }))}
+                            onChange={(value) =>
                               setVendorForm({
                                 ...vendorForm,
-                                contactPhone: joinPhoneNumber(e.target.value, vendorPhoneParts.localNumber),
+                                contactPhone: joinPhoneNumber(value, vendorPhoneParts.localNumber),
                               })
                             }
-                          >
-                            {DIAL_CODES.map((code) => (
-                              <option key={code} value={code}>
-                                {code}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </div>
                         <input
                           type="tel"
@@ -919,14 +940,12 @@ export default function VendorManagementPage() {
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium text-slate-700">Status</label>
                       <div className="relative">
-                        <select
-                          className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
+                        <GlassSelect
                           value={vendorForm.status}
-                          onChange={(e) => setVendorForm({ ...vendorForm, status: e.target.value as "Active" | "Disabled" })}
-                        >
-                          <option value="Active">Active</option>
-                          <option value="Disabled">Disabled</option>
-                        </select>
+                          options={[{ label: "Active", value: "Active" }, { label: "Disabled", value: "Disabled" }]}
+                          onChange={(value) => setVendorForm({ ...vendorForm, status: value as "Active" | "Disabled" })}
+                          className="pl-10"
+                        />
                         <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                       </div>
                     </div>
@@ -971,7 +990,6 @@ export default function VendorManagementPage() {
                             status: "Active",
                           });
                           setMemberCredential({ password: "" });
-                          setMemberFormError("");
                           setIsMemberModalOpen(true);
                         }}
                       >
@@ -1026,16 +1044,6 @@ export default function VendorManagementPage() {
             </div>
 
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
-              {vendorFormError && (
-                <div className={`mr-auto text-sm font-semibold self-center px-4 py-2 rounded-lg ${
-                  vendorFormError.includes("successfully")
-                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                    : "bg-red-50 text-red-700 border border-red-200"
-                }`}>
-                  {vendorFormError.includes("successfully") ? "✓ " : "⚠ "}
-                  {vendorFormError}
-                </div>
-              )}
               <GlassButton
                 variant="secondary"
                 onClick={() => {
@@ -1053,16 +1061,20 @@ export default function VendorManagementPage() {
                   onClick={async () => {
                     if (disableVendorEditing) return;
                     if (!vendorForm.vendorId || !vendorForm.providerName) {
-                      setVendorFormError("Please complete Vendor ID and Provider Name.");
+                      showToast("Please complete Vendor ID and Provider Name.", "error");
                       return;
                     }
                     const isEditing = Boolean(editingVendorId);
                     // Safety: prevent duplicate creation when editing
                     if (isEditing && vendorForm.vendorId !== editingVendorId) {
-                      setVendorFormError("Form ID mismatch detected. Please close and re-open the editor.");
+                      showToast("Form ID mismatch detected. Please close and re-open the editor.", "error");
                       return;
                     }
-                    setVendorFormError("");
+                    // Confirmation prompt for new vendor creation
+                    if (!isEditing) {
+                      const confirmed = window.confirm(`Create new vendor "${vendorForm.providerName}" (ID: ${vendorForm.vendorId})?`);
+                      if (!confirmed) return;
+                    }
                     try {
                       const res = await fetch(withBasePath("/api/admin/providers/upsert"), {
                         method: "POST",
@@ -1088,16 +1100,15 @@ export default function VendorManagementPage() {
                       await refreshVendorMembersSnapshot();
                       setSelectedVendorId(vendorForm.vendorId);
                       setMemberRefreshVersion((prev) => prev + 1);
-                      setVendorFormError(`${isEditing ? "Updated" : "Created"} successfully ✓`);
+                      showToast(`${isEditing ? "Updated" : "Created"} successfully`, "success");
                       setTimeout(() => {
                         setVendorForm(createEmptyVendorForm());
                         setEditingVendorId(null);
                         setVendorModalView("details");
-                        setVendorFormError("");
                         setIsVendorModalOpen(false);
                       }, 3000);
                     } catch (error) {
-                      setVendorFormError(error instanceof Error ? error.message : "Failed to save vendor.");
+                      showToast(error instanceof Error ? error.message : "Failed to save vendor.", "error");
                     }
                   }}
                 >
@@ -1128,9 +1139,7 @@ export default function VendorManagementPage() {
                 <p className="text-sm text-slate-500 mt-1">{complianceVendor.providerName} • {complianceVendor.vendorId}</p>
               </div>
               <div className="flex items-center gap-3">
-                <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full ${getStatusStyles(complianceState.state)}`}>
-                  {complianceState.state}
-                </span>
+                <StatusBadge status={complianceState.state} scheme={getBadgeScheme(complianceState.state)} />
                 <button
                   onClick={() => {
                     setIsComplianceModalOpen(false);
@@ -1154,8 +1163,8 @@ export default function VendorManagementPage() {
                   <p className="text-2xl font-bold mt-1 text-amber-700">{compliancePendingCount}</p>
                 </div>
                 <div className="glass-card rounded-2xl p-4">
-                  <p className="text-xs uppercase tracking-widest text-slate-400">Clinic License</p>
-                  <p className="text-2xl font-bold mt-1 text-slate-800">{getDocumentState(clinicDoc)}</p>
+                  <p className="text-xs uppercase tracking-widest text-slate-400">Borang F (Clinic License)</p>
+                  <p className="text-2xl font-bold mt-1 text-slate-800">{getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE)}</p>
                 </div>
                 <div className="glass-card rounded-2xl p-4">
                   <p className="text-xs uppercase tracking-widest text-slate-400">Doctor APC Files</p>
@@ -1207,16 +1216,13 @@ export default function VendorManagementPage() {
                         {getClinicNextActionMessage(clinicDoc)}
                       </p>
                     </div>
-                    <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full ${getStatusStyles(getDocumentState(clinicDoc))}`}>
-                      {getDocumentState(clinicDoc)}
-                    </span>
+                    <StatusBadge status={getDocumentState(clinicDoc)} scheme={getBadgeScheme(getDocumentState(clinicDoc))} />
                   </div>
                   <div className="flex flex-col gap-2">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <GlassButton
                         variant="secondary"
                         size="sm"
-                        className="h-9 px-4 text-sm font-semibold"
                         disabled={!clinicDoc?.fileName}
                         onClick={() =>
                           downloadComplianceDocument(
@@ -1231,7 +1237,6 @@ export default function VendorManagementPage() {
                       </GlassButton>
                       <GlassButton
                         size="sm"
-                        className="h-9 px-4 text-sm font-semibold"
                         disabled={disableVendorEditing}
                         onClick={() => setShowClinicUpload((prev) => !prev)}
                       >
@@ -1243,7 +1248,6 @@ export default function VendorManagementPage() {
                         <>
                           <GlassButton
                             size="sm"
-                            className="h-9 px-4 text-sm"
                             disabled={disableVendorEditing}
                             onClick={() => void reviewClinicSubmission("approved")}
                           >
@@ -1251,7 +1255,6 @@ export default function VendorManagementPage() {
                           </GlassButton>
                           <GlassButton
                             size="sm"
-                            className="h-9 px-4 text-sm"
                             variant="ghost"
                             disabled={disableVendorEditing}
                             onClick={() => void reviewClinicSubmission("rejected")}
@@ -1264,7 +1267,7 @@ export default function VendorManagementPage() {
                         <GlassButton
                           variant="ghost"
                           size="sm"
-                          className="h-9 px-4 text-sm text-rose-700 hover:bg-rose-50 border-rose-200"
+                          className="text-rose-700 hover:bg-rose-50 border-rose-200"
                           disabled={!clinicDoc?.credentialId}
                           onClick={() => {
                             const credentialId = clinicDoc?.credentialId;
@@ -1373,13 +1376,11 @@ export default function VendorManagementPage() {
                                     {doc?.fileName ? doc.fileName : "No APC uploaded"}
                                   </p>
                                 </div>
-                                <span
-                                  className={`shrink-0 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${getStatusStyles(
-                                    getDocumentState(doc)
-                                  )}`}
-                                >
-                                  {getDocumentState(doc)}
-                                </span>
+                                <StatusBadge
+                                  status={getDocumentState(doc)}
+                                  scheme={getBadgeScheme(getDocumentState(doc))}
+                                  className="shrink-0"
+                                />
                               </div>
                             </button>
                           );
@@ -1406,13 +1407,10 @@ export default function VendorManagementPage() {
                                 {selectedDoctor.providerUserUuid || "—"}
                               </p>
                             </div>
-                            <span
-                              className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full ${getStatusStyles(
-                                getDocumentState(selectedDoctorApcDoc || undefined)
-                              )}`}
-                            >
-                              {getDocumentState(selectedDoctorApcDoc || undefined)}
-                            </span>
+                            <StatusBadge
+                              status={getDocumentState(selectedDoctorApcDoc || undefined)}
+                              scheme={getBadgeScheme(getDocumentState(selectedDoctorApcDoc || undefined))}
+                            />
                           </div>
 
                           <div className="rounded-xl border border-slate-200/70 bg-slate-50/70 p-4 space-y-2">
@@ -1572,9 +1570,7 @@ export default function VendorManagementPage() {
                   <GlassCard className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <p className="text-xs uppercase tracking-widest text-slate-400">Vendor Submitted Review Queue</p>
-                      <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${pendingVendorSubmissions.length > 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                        {pendingVendorSubmissions.length} pending
-                      </span>
+                      <StatusBadge status={`${pendingVendorSubmissions.length} pending`} scheme={pendingVendorSubmissions.length > 0 ? "warning" : "success"} />
                     </div>
                     {pendingVendorSubmissions.length > 0 ? (
                       <div className="space-y-2">
@@ -1584,7 +1580,7 @@ export default function VendorManagementPage() {
                           </p>
                           <div className="flex gap-2">
                             <GlassButton
-                              className="h-9 px-4"
+                              size="sm"
                               disabled={disableVendorEditing || bulkReviewStatus !== null}
                               onClick={async () => {
                                 if (disableVendorEditing) return;
@@ -1604,7 +1600,7 @@ export default function VendorManagementPage() {
                             </GlassButton>
                             <GlassButton
                               variant="secondary"
-                              className="h-9 px-4"
+                              size="sm"
                               disabled={disableVendorEditing || bulkReviewStatus !== null}
                               onClick={async () => {
                                 if (disableVendorEditing) return;
@@ -1641,7 +1637,7 @@ export default function VendorManagementPage() {
                             <div className="flex gap-2">
                               <GlassButton
                                 variant="secondary"
-                                className="h-9 px-4"
+                                size="sm"
                                 onClick={() => {
                                   const doc =
                                     item.kind === "clinic_license"
@@ -1662,7 +1658,7 @@ export default function VendorManagementPage() {
                                 Download
                               </GlassButton>
                               <GlassButton
-                                className="h-9 px-4"
+                                size="sm"
                                 disabled={disableVendorEditing || bulkReviewStatus !== null || !item.credentialId}
                                 onClick={() => {
                                   if (!item.credentialId) return;
@@ -1673,7 +1669,7 @@ export default function VendorManagementPage() {
                               </GlassButton>
                               <GlassButton
                                 variant="secondary"
-                                className="h-9 px-4"
+                                size="sm"
                                 disabled={disableVendorEditing || bulkReviewStatus !== null || !item.credentialId}
                                 onClick={() => {
                                   if (!item.credentialId) return;
@@ -1717,9 +1713,7 @@ export default function VendorManagementPage() {
                               <td className="px-6 py-4 text-slate-600 capitalize">{row.actor}</td>
                               <td className="px-6 py-4 text-slate-500">{row.date}</td>
                               <td className="px-6 py-4">
-                                <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${getStatusStyles(row.status)}`}>
-                                  {row.status}
-                                </span>
+                                <StatusBadge status={row.status} scheme={getBadgeScheme(row.status)} />
                               </td>
                             </tr>
                           ))}
@@ -1809,22 +1803,16 @@ export default function VendorManagementPage() {
                     <label className="text-sm font-medium text-slate-700">Contact Number</label>
                     <div className="flex gap-3">
                       <div className="relative w-28 shrink-0">
-                        <select
-                          className="w-full glass-input px-3 py-2.5 bg-transparent"
+                        <GlassSelect
                           value={memberPhoneParts.countryCode}
-                          onChange={(e) =>
+                          options={DIAL_CODES.map((code) => ({ label: code, value: code }))}
+                          onChange={(value) =>
                             setMemberForm({
                               ...memberForm,
-                              phone: joinPhoneNumber(e.target.value, memberPhoneParts.localNumber),
+                              phone: joinPhoneNumber(value, memberPhoneParts.localNumber),
                             })
                           }
-                        >
-                          {DIAL_CODES.map((code) => (
-                            <option key={code} value={code}>
-                              {code}
-                            </option>
-                          ))}
-                        </select>
+                        />
                       </div>
                       <input
                         type="tel"
@@ -1843,18 +1831,18 @@ export default function VendorManagementPage() {
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700">Role</label>
                     <div className="relative">
-                      <select
-                        className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
+                      <GlassSelect
                         value={memberForm.role || ""}
-                        onChange={(e) => {
-                          setMemberFormError("");
-                          setMemberForm({ ...memberForm, role: e.target.value });
+                        options={[
+                          { label: "Admin", value: "Admin" },
+                          { label: "Doctor", value: "Doctor" },
+                        ]}
+                        onChange={(value) => {
+                          setMemberForm({ ...memberForm, role: value });
                         }}
-                      >
-                        <option value="">Select role</option>
-                        <option value="Admin">Admin</option>
-                        <option value="Doctor">Doctor</option>
-                      </select>
+                        placeholder="Select role"
+                        className="pl-10"
+                      />
                       <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                     </div>
                   </div>
@@ -1875,14 +1863,12 @@ export default function VendorManagementPage() {
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700">Status</label>
                     <div className="relative">
-                      <select
-                        className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
+                      <GlassSelect
                         value={memberForm.status}
-                        onChange={(e) => setMemberForm({ ...memberForm, status: e.target.value as "Active" | "Disabled" })}
-                      >
-                        <option value="Active">Active</option>
-                        <option value="Disabled">Disabled</option>
-                      </select>
+                        options={[{ label: "Active", value: "Active" }, { label: "Disabled", value: "Disabled" }]}
+                        onChange={(value) => setMemberForm({ ...memberForm, status: value as "Active" | "Disabled" })}
+                        className="pl-10"
+                      />
                       <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                     </div>
                   </div>
@@ -1896,11 +1882,9 @@ export default function VendorManagementPage() {
             </div>
 
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
-              {memberFormError && <p className="mr-auto text-xs text-red-500 font-medium self-center">{memberFormError}</p>}
               <GlassButton
                 variant="secondary"
                 onClick={() => {
-                  setMemberFormError("");
                   setIsMemberModalOpen(false);
                 }}
               >
@@ -1911,15 +1895,15 @@ export default function VendorManagementPage() {
                 onClick={async () => {
                   if (disableVendorEditing) return;
                   if (!memberForm.memberId || !memberForm.fullName || !memberForm.email) {
-                    setMemberFormError("Please complete Member ID, Full Name, and Email.");
+                    showToast("Please complete Member ID, Full Name, and Email.", "error");
                     return;
                   }
                   if (!memberForm.role || !["Admin", "Doctor"].includes(memberForm.role)) {
-                    setMemberFormError("Please select a valid role.");
+                    showToast("Please select a valid role.", "error");
                     return;
                   }
                   if (!memberCredential.password) {
-                    setMemberFormError("Temporary password is required.");
+                    showToast("Temporary password is required.", "error");
                     return;
                   }
                   const response = await fetch(withBasePath("/api/admin/providers/create-user"), {
@@ -1943,7 +1927,7 @@ export default function VendorManagementPage() {
                     requiresApcUpload?: boolean;
                   };
                   if (!response.ok || !payload.ok) {
-                    setMemberFormError(payload.error || "Unable to create vendor member login.");
+                    showToast(payload.error || "Unable to create vendor member login.", "error");
                     return;
                   }
                   await refreshVendorMembersSnapshot();
@@ -1957,7 +1941,6 @@ export default function VendorManagementPage() {
                     status: "Active",
                   });
                   setMemberCredential({ password: "" });
-                  setMemberFormError("");
                   setMemberRefreshVersion((prev) => prev + 1);
                   setIsMemberModalOpen(false);
                   if (memberForm.role === "Doctor" && payload.requiresApcUpload && payload.providerUserId) {

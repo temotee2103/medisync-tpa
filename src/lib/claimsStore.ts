@@ -36,7 +36,7 @@ export type AdminClaimRecord = {
   consultationFee?: string;
   medicationFee?: string;
   injectionFee?: string;
-  investigationFee?: string;
+  diagnosisFee?: string;
   procedureFee?: string;
   immunizationFee?: string;
   selectedChargeItems?: Record<string, string[]>;

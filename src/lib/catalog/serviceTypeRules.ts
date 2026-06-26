@@ -2,7 +2,7 @@ export type CatalogSection =
   | "consultation"
   | "medication"
   | "injection"
-  | "investigation"
+  | "diagnosis"
   | "procedure"
   | "immunization";
 

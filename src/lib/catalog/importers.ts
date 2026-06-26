@@ -55,7 +55,7 @@ export function parseSingleColumnList(workbook: XLSX.WorkBook, headerName: strin
   } satisfies ImportResult<{ name: string }>;
 }
 
-export function parseInvestigations(workbook: XLSX.WorkBook) {
+export function parseDiagnosis(workbook: XLSX.WorkBook) {
   const { sheet } = getFirstSheet(workbook);
   const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
   const errors: string[] = [];

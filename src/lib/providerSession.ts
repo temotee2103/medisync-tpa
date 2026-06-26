@@ -13,10 +13,16 @@ export const PROVIDER_CREDENTIAL_DOC_TYPES = {
   CLINIC_LICENSE: "clinic_license",
   APC: "apc",
   BORANG_B: "borang_b",
-  BORANG_C: "borang_c",
   SSM: "ssm",
   TCM: "tcm",
 } as const;
+
+/** Doc types that never expire — once approved, always valid. */
+export const NON_EXPIRY_DOC_TYPES: Set<ProviderCredentialDocType> = new Set([
+  PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE,
+  PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B,
+  PROVIDER_CREDENTIAL_DOC_TYPES.SSM,
+]);
 
 export type ProviderCredentialDocType =
   typeof PROVIDER_CREDENTIAL_DOC_TYPES[keyof typeof PROVIDER_CREDENTIAL_DOC_TYPES];
@@ -438,7 +444,7 @@ export const getProviderComplianceByVendorId = (vendorId: string): VendorComplia
   const providerRows = providerCredentialsSnapshot.filter((row) => row.provider_id === providerUuid);
   const clinicCandidates = providerRows.filter(
     (row) =>
-      (row.doc_type === "clinic_license" || row.doc_type === "borang_b" || row.doc_type === "borang_c" || row.doc_type === "ssm" || row.doc_type === "tcm") &&
+      (row.doc_type === "clinic_license" || row.doc_type === "borang_b" || row.doc_type === "ssm" || row.doc_type === "tcm") &&
       !row.provider_user_id
   );
 
@@ -758,10 +764,12 @@ const getExpiryState = (expiryDate?: string) => {
   return "valid";
 };
 
-const getDocumentState = (doc?: VendorComplianceDocument | VendorDoctorApc) => {
+const getDocumentState = (doc?: VendorComplianceDocument | VendorDoctorApc, docType?: ProviderCredentialDocType | string) => {
   if (!doc || doc.status === "missing" || !doc.fileName) return "missing";
   if (doc.status === "rejected") return "rejected";
   if (doc.status === "submitted") return "submitted";
+  // Non-expiry doc types: once approved, always valid (never check expiry)
+  if (docType && NON_EXPIRY_DOC_TYPES.has(docType as ProviderCredentialDocType)) return "approved";
   return getExpiryState(doc.expiryDate) === "expired" ? "expired" : "approved";
 };
 
@@ -770,18 +778,33 @@ export const isProviderCompliant = (vendorId: string) => {
   if (!provider) return false;
   const compliance = provider.compliance || getProviderComplianceByVendorId(vendorId);
   
-  const clinicState = getDocumentState(compliance.clinicLicense);
-  const documentStates = (compliance.documents || []).map((doc) => getDocumentState(doc));
+  // APC: Required — at least one active doctor must have approved APC
   const apcStates = (compliance.doctorApcs || [])
     .filter((doc) => {
       const doctor = getProviderUserById(vendorId, doc.providerUserId);
       const role = normalizeProviderUserRole(doctor?.role);
       return !!doctor && doctor.status === "Active" && role === "doctor";
     })
-    .map((doc) => getDocumentState(doc));
+    .map((doc) => getDocumentState(doc, PROVIDER_CREDENTIAL_DOC_TYPES.APC));
   if (apcStates.length === 0) return false;
-  const blockedStates = ["missing", "submitted", "rejected", "expired"];
-  return ![clinicState, ...documentStates, ...apcStates].some((state) => blockedStates.includes(state));
+  const hasApprovedApc = apcStates.some((state) => state === "approved");
+  if (!hasApprovedApc) return false;
+
+  // SSM: Required — must be approved (non-expiry)
+  const ssmDoc = (compliance.documents || []).find((d) => d.docType === PROVIDER_CREDENTIAL_DOC_TYPES.SSM);
+  const ssmState = getDocumentState(ssmDoc, PROVIDER_CREDENTIAL_DOC_TYPES.SSM);
+  if (ssmState !== "approved") return false;
+
+  // Borang B OR Borang F: At least one must be approved (non-expiry)
+  const borangB = (compliance.documents || []).find((d) => d.docType === PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B);
+  const borangBState = getDocumentState(borangB, PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B);
+  const clinicState = getDocumentState(compliance.clinicLicense, PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE);
+  const hasEitherBOrF = borangBState === "approved" || clinicState === "approved";
+  if (!hasEitherBOrF) return false;
+
+  // TCM: Optional — not checked
+  
+  return true;
 };
 
 export const isProviderBlockedByCompliance = (vendorId: string) => {

@@ -2,6 +2,7 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import {
   Activity,
   ArrowRight,
@@ -53,16 +54,16 @@ const getClaimDateValue = (claim: AdminClaimRecord) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const getClaimStatusTone = (status: string) => {
+const getClaimStatusScheme = (status: string) => {
   switch (status) {
     case "Approved":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+      return "success";
     case "Rejected":
-      return "border-rose-200 bg-rose-50 text-rose-700";
+      return "danger";
     case "In progress":
-      return "border-sky-200 bg-sky-50 text-sky-700";
+      return "info";
     default:
-      return "border-amber-200 bg-amber-50 text-amber-700";
+      return "warning";
   }
 };
 
@@ -469,9 +470,7 @@ export default function AdminDashboard() {
                   <div className="text-right hidden sm:block">
                     <p className="font-bold text-slate-800">{formatCurrency(claim.amount)}</p>
                     <div className="mt-1 flex items-center justify-end gap-2">
-                      <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em]", getClaimStatusTone(claim.status))}>
-                        {claim.status}
-                      </span>
+                      <StatusBadge status={claim.status} scheme={getClaimStatusScheme(claim.status)} />
                       <span className="text-xs text-slate-500">
                         {formatDateDisplay(claim.submittedAt || claim.createdAt || claim.date) || claim.date}
                       </span>
@@ -520,26 +519,26 @@ export default function AdminDashboard() {
               <div key={request.id} className="rounded-xl border border-slate-200 bg-white/70 p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-slate-700">{request.fullName}</p>
-                  <span className={cn(
-                    "text-[10px] uppercase font-bold px-2 py-0.5 rounded-full",
-                    request.status === "approved"
-                      ? "bg-emerald-100 text-emerald-700"
-                      : request.status === "rejected"
-                        ? "bg-rose-100 text-rose-700"
-                        : "bg-amber-100 text-amber-700"
-                  )}>
-                    {request.status}
-                  </span>
+                  <StatusBadge
+                    status={request.status}
+                    scheme={
+                      request.status === "approved"
+                        ? "success"
+                        : request.status === "rejected"
+                          ? "danger"
+                          : "warning"
+                    }
+                  />
                 </div>
                 <p className="text-xs text-slate-500">
                   {request.relationship} • {new Date(request.submittedAt).toLocaleDateString()}
                 </p>
                 {request.status === "pending" && (
                   <div className="flex gap-2">
-                    <GlassButton size="sm" className="h-8 px-3" onClick={() => updateDependentRequestStatus(request.id, "approved")}>
+                    <GlassButton size="sm" onClick={() => updateDependentRequestStatus(request.id, "approved")}>
                       Approve
                     </GlassButton>
-                    <GlassButton size="sm" variant="secondary" className="h-8 px-3" onClick={() => updateDependentRequestStatus(request.id, "rejected")}>
+                    <GlassButton size="sm" variant="secondary" onClick={() => updateDependentRequestStatus(request.id, "rejected")}>
                       Reject
                     </GlassButton>
                   </div>

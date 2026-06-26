@@ -26,30 +26,66 @@ function getFirstSheet(workbook: XLSX.WorkBook) {
   return { name, sheet };
 }
 
-export async function parseMemberImportWorkbook(file: File, company: Company): Promise<ImportRow[]> {
+export async function parseMemberImportWorkbook(file: File, company: Company, useCompanyPlan = false): Promise<ImportRow[]> {
   const wb = await readExcel(file);
   const first = getFirstSheet(wb);
   if (!first) return [];
 
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(first.sheet, { defval: "" });
-  const expectedHeaders = buildMemberImportHeaders(company);
+  const expectedHeaders = buildMemberImportHeaders(company, !useCompanyPlan);
+  const companyCats = Object.entries(company.planConfig.categories);
 
   return rows.map((raw, index) => {
     const rowNumber = index + 2;
     const typeRaw = normalizeCell(raw.type).toLowerCase();
 
-    const categoryEnabled: Record<string, "Y" | "N"> = {};
-    const categoryLimits: Record<string, string> = {};
+    let categoryEnabled: Record<string, "Y" | "N">;
+    let categoryLimits: Record<string, string>;
+    let planType: ImportPlanType;
+    let lumpSumLimit: string;
 
-    for (const header of expectedHeaders) {
-      if (!header.startsWith("cat_")) continue;
-      const value = normalizeCell(raw[header]);
-      const parts = header.split("_");
-      const categoryKey = parts[1] || "";
-      const suffix = parts.slice(2).join("_");
+    // Check if row references a named company plan
+    // Accept "1", "2", "3" etc. → auto-prepend "Plan "
+    const planNameRaw = normalizeCell(raw.planName);
+    const planName = planNameRaw && !planNameRaw.toLowerCase().startsWith("plan ") ? `Plan ${planNameRaw}` : planNameRaw;
+    const matchedPlan = planName ? (company.planConfig.companyPlans || []).find(p => p.name.trim().toLowerCase() === planName.toLowerCase()) : null;
 
-      if (suffix === "enabled") categoryEnabled[categoryKey] = value.toUpperCase() === "Y" ? "Y" : "N";
-      if (suffix === "limit") categoryLimits[categoryKey] = value;
+    if (matchedPlan) {
+      // Use the named plan's config
+      categoryEnabled = {};
+      categoryLimits = {};
+      for (const [key, cat] of companyCats) {
+        const planCat = matchedPlan.categories?.[key];
+        categoryEnabled[key] = planCat?.enabled ? "Y" : "N";
+        categoryLimits[key] = String(planCat?.limit ?? "");
+      }
+      planType = matchedPlan.type as ImportPlanType;
+      lumpSumLimit = String(matchedPlan.lumpSumLimit ?? "");
+    } else if (useCompanyPlan) {
+      // Use company default plan for all rows — no per-member plan columns
+      categoryEnabled = {};
+      categoryLimits = {};
+      for (const [key, cat] of companyCats) {
+        categoryEnabled[key] = cat.enabled ? "Y" : "N";
+        categoryLimits[key] = String(cat.limit ?? "");
+      }
+      planType = company.planConfig.type as ImportPlanType;
+      lumpSumLimit = String(company.planConfig.lumpSumLimit ?? "");
+    } else {
+      categoryEnabled = {};
+      categoryLimits = {};
+      for (const header of expectedHeaders) {
+        if (!header.startsWith("cat_")) continue;
+        const value = normalizeCell(raw[header]);
+        const parts = header.split("_");
+        const categoryKey = parts[1] || "";
+        const suffix = parts.slice(2).join("_");
+
+        if (suffix === "enabled") categoryEnabled[categoryKey] = value.toUpperCase() === "Y" ? "Y" : "N";
+        if (suffix === "limit") categoryLimits[categoryKey] = value;
+      }
+      planType = normalizeCell(raw.planType) as ImportPlanType;
+      lumpSumLimit = normalizeCell(raw.lumpSumLimit);
     }
 
     const base = {
@@ -66,8 +102,8 @@ export async function parseMemberImportWorkbook(file: File, company: Company): P
       dob: normalizeCell(raw.dob),
       passportExpiry: normalizeCell(raw.passportExpiry),
       passportFileName: normalizeCell(raw.passportFileName),
-      planType: normalizeCell(raw.planType) as ImportPlanType,
-      lumpSumLimit: normalizeCell(raw.lumpSumLimit),
+      planType,
+      lumpSumLimit,
       categoryEnabled,
       categoryLimits,
     };

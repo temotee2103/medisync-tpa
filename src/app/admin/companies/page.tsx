@@ -2,6 +2,9 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { GlassSelect } from "@/components/ui/GlassSelect";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { showToast } from "@/components/ui/Toast";
 import { ResponsiveDataView } from "@/components/ui/ResponsiveDataView";
 import { MobileRecordCard } from "@/components/ui/MobileRecordCard";
 import { 
@@ -58,6 +61,23 @@ const normalizeSupabaseErrorMessage = (error: unknown, fallback: string) => {
 };
 
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const parseSsmName = (raw: string | undefined): string => {
+  if (!raw) return "No file uploaded";
+  if (raw.startsWith("{")) {
+    try { return JSON.parse(raw).name || "No file uploaded"; } catch { return "No file uploaded"; }
+  }
+  return raw;
+};
+
+const parseSsmData = (raw: string | undefined): { name: string; data: string } | null => {
+  if (!raw || !raw.startsWith("{")) return null;
+  try {
+    const ssm = JSON.parse(raw);
+    if (!ssm.data) return null;
+    return { name: ssm.name || "ssm-certificate", data: ssm.data };
+  } catch { return null; }
+};
 
 type CompanyDbRow = {
   id: string;
@@ -491,13 +511,14 @@ export default function AdminCompanyManagementPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
-  const [companyModalView, setCompanyModalView] = useState<"details" | "info">("details");
+  const [companyModalView, setCompanyModalView] = useState<"details" | "info" | "plans">("details");
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
   const [bulkImportError, setBulkImportError] = useState("");
   const [bulkImportPreview, setBulkImportPreview] = useState<ImportRowResult[]>([]);
   const [bulkImportIsSubmitting, setBulkImportIsSubmitting] = useState(false);
+  const [bulkPlanMode, setBulkPlanMode] = useState<"company" | "custom">("company");
   const [remoteMemberStats, setRemoteMemberStats] = useState<{
     total: number;
     active: number;
@@ -774,6 +795,7 @@ export default function AdminCompanyManagementPage() {
     setBulkImportError("");
     setBulkImportPreview([]);
     setBulkImportIsSubmitting(false);
+    setBulkPlanMode("company");
   };
 
   const bulkImportStats = useMemo(() => {
@@ -784,7 +806,7 @@ export default function AdminCompanyManagementPage() {
 
   const handleDownloadMemberTemplate = () => {
     if (!selectedCompany) return;
-    downloadMemberImportTemplate(selectedCompany);
+    downloadMemberImportTemplate(selectedCompany, false);
   };
 
   const handleBulkImportFile = async (file: File) => {
@@ -792,12 +814,14 @@ export default function AdminCompanyManagementPage() {
     setBulkImportFile(file);
     setBulkImportError("");
     try {
-      const rows = await parseMemberImportWorkbook(file, selectedCompany);
+      const useCompanyPlan = bulkPlanMode === "company";
+      const rows = await parseMemberImportWorkbook(file, selectedCompany, useCompanyPlan);
       const preview = validateImportRows(selectedCompany, rows);
       setBulkImportPreview(preview);
     } catch (error) {
       setBulkImportPreview([]);
       setBulkImportError(error instanceof Error ? error.message : "Failed to parse file.");
+      showToast(error instanceof Error ? error.message : "Failed to parse file.", "error");
     }
   };
 
@@ -807,6 +831,7 @@ export default function AdminCompanyManagementPage() {
     const hasErrors = bulkImportPreview.some((row) => row.status === "error");
     if (hasErrors) {
       setBulkImportError("Fix Excel errors before importing.");
+      showToast("Fix Excel errors before importing.", "error");
       return;
     }
     const okRows = bulkImportPreview
@@ -814,6 +839,7 @@ export default function AdminCompanyManagementPage() {
       .map((row) => row.row);
     if (okRows.length === 0) {
       setBulkImportError("No valid rows to import.");
+      showToast("No valid rows to import.", "error");
       return;
     }
 
@@ -835,6 +861,7 @@ export default function AdminCompanyManagementPage() {
       closeBulkImport();
     } catch (error) {
       setBulkImportError(normalizeSupabaseErrorMessage(error, "Bulk import failed."));
+      showToast(normalizeSupabaseErrorMessage(error, "Bulk import failed."), "error");
     } finally {
       setBulkImportIsSubmitting(false);
     }
@@ -859,15 +886,7 @@ export default function AdminCompanyManagementPage() {
               </span>
             }
             badge={
-              <span
-                className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                  company.status === "Active"
-                    ? "bg-emerald-100 text-emerald-700"
-                    : "bg-slate-100 text-slate-500"
-                }`}
-              >
-                {company.status}
-              </span>
+              <StatusBadge status={company.status} scheme={company.status === "Active" ? "success" : "neutral"} />
             }
             footer={
               <div className="flex flex-wrap justify-end gap-2">
@@ -933,6 +952,7 @@ export default function AdminCompanyManagementPage() {
                     setBulkImportFile(null);
                     setBulkImportError("");
                     setBulkImportPreview([]);
+                    setBulkPlanMode("company");
                     setIsBulkImportOpen(true);
                   }}
                 >
@@ -954,7 +974,7 @@ export default function AdminCompanyManagementPage() {
                           .eq("company_id", company.companyId);
                         if (error) throw error;
                       } catch (error) {
-                        alert(normalizeSupabaseErrorMessage(error, "Failed to delete company."));
+                        showToast(normalizeSupabaseErrorMessage(error, "Failed to delete company."), "error");
                         return;
                       }
                       if (selectedCompanyId === company.companyId) {
@@ -1060,7 +1080,14 @@ export default function AdminCompanyManagementPage() {
                 <tbody>
                   {filteredCompanies.map((company) => (
                     <tr key={company.companyId} className={`border-t border-slate-100 ${activeCompanyId === company.companyId ? "bg-sky-50/60" : "hover:bg-slate-50/60"}`}>
-                      <td className="px-6 py-4 font-semibold text-slate-800">{company.name}</td>
+                      <td className="px-6 py-4 font-semibold text-slate-800 cursor-pointer hover:text-sky-700" onClick={() => {
+                        setSelectedCompanyId(company.companyId);
+                        setEditingCompanyId(company.companyId);
+                        setCompanyModalView("details");
+                        setCompanyForm(company);
+                        setCompanyFormError("");
+                        setIsCompanyModalOpen(true);
+                      }}>{company.name}</td>
                       <td className="px-6 py-4 text-slate-500">{company.companyId}</td>
                       <td className="px-6 py-4 text-slate-500">
                         <div className="space-y-0.5">
@@ -1069,9 +1096,7 @@ export default function AdminCompanyManagementPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${company.status === "Active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                          {company.status}
-                        </span>
+                        <StatusBadge status={company.status} scheme={company.status === "Active" ? "success" : "neutral"} />
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex justify-end gap-2">
@@ -1137,6 +1162,7 @@ export default function AdminCompanyManagementPage() {
                               setBulkImportFile(null);
                               setBulkImportError("");
                               setBulkImportPreview([]);
+                              setBulkPlanMode("company");
                               setIsBulkImportOpen(true);
                             }}
                           >
@@ -1158,7 +1184,7 @@ export default function AdminCompanyManagementPage() {
                                       .eq("company_id", company.companyId);
                                     if (error) throw error;
                                   } catch (error) {
-                                    alert(normalizeSupabaseErrorMessage(error, "Failed to delete company."));
+                                  showToast(normalizeSupabaseErrorMessage(error, "Failed to delete company."), "error");
                                     return;
                                   }
                                   if (selectedCompanyId === company.companyId) {
@@ -1246,6 +1272,14 @@ export default function AdminCompanyManagementPage() {
                 >
                   <Info className="w-4 h-4" />
                   Info
+                </GlassButton>
+                <GlassButton
+                  variant={companyModalView === "plans" ? "primary" : "secondary"}
+                  className="gap-2"
+                  onClick={() => setCompanyModalView("plans")}
+                >
+                  <Building2 className="w-4 h-4" />
+                  Plans
                 </GlassButton>
               </div>
             )}
@@ -1395,7 +1429,18 @@ export default function AdminCompanyManagementPage() {
                         <input
                           type="file"
                           className="w-full glass-input px-4 py-2.5 bg-white text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-200 file:bg-slate-100 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-wider file:text-slate-600 hover:file:bg-slate-200/80"
-                          onChange={(e) => setCompanyForm({ ...companyForm, ssmFileName: e.target.files?.[0]?.name || "" })}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) { setCompanyForm({ ...companyForm, ssmFileName: "" }); return; }
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              setCompanyForm({
+                                ...companyForm,
+                                ssmFileName: JSON.stringify({ name: file.name, data: typeof reader.result === "string" ? reader.result : "" }),
+                              });
+                            };
+                            reader.readAsDataURL(file);
+                          }}
                         />
                         <p className="text-[10px] text-slate-400 pl-1">Upload company SSM certificate (PDF or image).</p>
                       </div>
@@ -1446,7 +1491,7 @@ export default function AdminCompanyManagementPage() {
                         </div>
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-slate-700">Contact Person Name</label>
+                        <label className="text-sm font-medium text-slate-700">HR Name</label>
                         <div className="relative">
                           <input
                             className="w-full glass-input pl-10 pr-4 py-2.5"
@@ -1458,25 +1503,20 @@ export default function AdminCompanyManagementPage() {
                         </div>
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-slate-700">Contact Number</label>
+                        <label className="text-sm font-medium text-slate-700">HR Number</label>
                         <div className="flex gap-3">
                           <div className="relative w-28 shrink-0">
-                            <select
-                              className="w-full glass-input px-3 py-2.5 bg-transparent"
+                            <GlassSelect
+                              className="px-3 py-2.5 bg-transparent"
                               value={companyPhoneParts.countryCode}
-                              onChange={(e) =>
+                              options={DIAL_CODES.map((code) => ({ label: code, value: code }))}
+                              onChange={(value) =>
                                 setCompanyForm({
                                   ...companyForm,
-                                  contactPhone: joinPhoneNumber(e.target.value, companyPhoneParts.localNumber),
+                                  contactPhone: joinPhoneNumber(value, companyPhoneParts.localNumber),
                                 })
                               }
-                            >
-                              {DIAL_CODES.map((code) => (
-                                <option key={code} value={code}>
-                                  {code}
-                                </option>
-                              ))}
-                            </select>
+                            />
                           </div>
                           <input
                             type="tel"
@@ -1493,55 +1533,227 @@ export default function AdminCompanyManagementPage() {
                         </div>
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-sm font-medium text-slate-700">Second Contact Person Name</label>
-                        <div className="relative">
-                          <input
-                            className="w-full glass-input pl-10 pr-4 py-2.5"
-                            placeholder="Person in charge"
-                            value={companyForm.contactPhoneSecondaryName || ""}
-                            onChange={(e) => setCompanyForm({ ...companyForm, contactPhoneSecondaryName: e.target.value })}
-                          />
-                          <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
+                        <label className="text-sm font-medium text-slate-700">2nd HR Name</label>
+                          <div className="relative">
+                            <input
+                              className="w-full glass-input pl-10 pr-4 py-2.5"
+                              placeholder="Person in charge"
+                              value={companyForm.contactPhoneSecondaryName || ""}
+                              onChange={(e) => setCompanyForm({ ...companyForm, contactPhoneSecondaryName: e.target.value })}
+                            />
+                            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
+                          </div>
                         </div>
-                      </div>
-                      <div className="space-y-1.5 md:col-span-2">
-                        <label className="text-sm font-medium text-slate-700">Second Contact Number</label>
-                        <div className="flex gap-3">
-                          <div className="relative w-28 shrink-0">
-                            <select
-                              className="w-full glass-input px-3 py-2.5 bg-transparent"
-                              value={companyPhoneSecondaryParts.countryCode}
+                        <div className="space-y-1.5">
+                          <label className="text-sm font-medium text-slate-700">2nd HR Number</label>
+                          <div className="flex gap-3">
+                            <div className="relative w-28 shrink-0">
+                              <GlassSelect
+                                className="px-3 py-2.5 bg-transparent"
+                                value={companyPhoneSecondaryParts.countryCode}
+                                options={DIAL_CODES.map((code) => ({ label: code, value: code }))}
+                                onChange={(value) =>
+                                  setCompanyForm({
+                                    ...companyForm,
+                                    contactPhoneSecondary: joinPhoneNumber(value, companyPhoneSecondaryParts.localNumber),
+                                  })
+                                }
+                              />
+                            </div>
+                            <input
+                              type="tel"
+                              className="w-full glass-input px-4 py-2.5"
+                              placeholder="Key in number"
+                              value={companyPhoneSecondaryParts.localNumber}
                               onChange={(e) =>
                                 setCompanyForm({
                                   ...companyForm,
-                                  contactPhoneSecondary: joinPhoneNumber(e.target.value, companyPhoneSecondaryParts.localNumber),
+                                  contactPhoneSecondary: joinPhoneNumber(companyPhoneSecondaryParts.countryCode, e.target.value),
                                 })
                               }
-                            >
-                              {DIAL_CODES.map((code) => (
-                                <option key={code} value={code}>
-                                  {code}
-                                </option>
-                              ))}
-                            </select>
+                            />
                           </div>
-                          <input
-                            type="tel"
-                            className="w-full glass-input px-4 py-2.5"
-                            placeholder="Key in number"
-                            value={companyPhoneSecondaryParts.localNumber}
-                            onChange={(e) =>
-                              setCompanyForm({
-                                ...companyForm,
-                                contactPhoneSecondary: joinPhoneNumber(companyPhoneSecondaryParts.countryCode, e.target.value),
-                              })
-                            }
-                          />
                         </div>
-                      </div>
                     </div>
                   </section>
                 </fieldset>
+              ) : companyModalView === "info" ? (
+                <div className="space-y-6">
+                  <section className="space-y-4">
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <span className="w-1 h-4 bg-emerald-500 rounded-full"/>
+                      SSM Document Review
+                    </h3>
+                    <GlassCard className="p-6 space-y-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1">
+                          <p className="text-xs uppercase tracking-widest text-slate-400">SSM Certificate</p>
+                          <p className="text-base font-bold text-slate-800 mt-1">
+                            {parseSsmName(companyForm.ssmFileName)}
+                          </p>
+                          {parseSsmData(companyForm.ssmFileName) ? (
+                            <button
+                              onClick={() => {
+                                const d = parseSsmData(companyForm.ssmFileName);
+                                if (!d) return;
+                                const a = document.createElement("a");
+                                a.href = d.data;
+                                a.download = d.name;
+                                a.click();
+                              }}
+                              className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-sky-600 hover:text-sky-800"
+                            >
+                              <Download className="w-3 h-3" /> Download SSM
+                            </button>
+                          ) : companyForm.ssmFileName ? (
+                            <label className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-sky-600 hover:text-sky-800 cursor-pointer">
+                              <Upload className="w-3 h-3" /> Re-upload SSM
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept=".pdf,.jpg,.jpeg,image/jpeg,image/png,application/pdf"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  const reader = new FileReader();
+                                  reader.onload = async () => {
+                                    const data = typeof reader.result === "string" ? reader.result : "";
+                                    const ssmFileName = JSON.stringify({ name: file.name, data });
+                                    setCompanyForm({ ...companyForm, ssmFileName });
+                                    // Auto-save to DB
+                                    try {
+                                      const res = await fetch(withBasePath("/api/admin/companies/upsert"), {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ ...companyForm, ssmFileName }),
+                                      });
+                                      if (res.ok) setCompanyFormError("SSM re-uploaded ✓");
+                                    } catch { /* silent */ }
+                                  };
+                                  reader.readAsDataURL(file);
+                                }}
+                              />
+                            </label>
+                          ) : null}
+                        </div>
+                        <span className={`px-3 py-1 text-xs font-bold rounded-full ${companyForm.ssmExpiryDate ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+                          {companyForm.ssmExpiryDate ? "Uploaded" : "Missing"}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">SSM Expiry Date</label>
+                        <input
+                          type="date"
+                          className="w-full glass-input px-4 py-2 bg-slate-50 rounded-lg"
+                          value={companyForm.ssmExpiryDate || ""}
+                          disabled
+                        />
+                        {companyForm.ssmExpiryDate && companyForm.ssmExpiryDate < TODAY_KEY && (
+                          <p className="text-xs text-rose-600 font-bold mt-1">SSM has expired. Request updated certificate.</p>
+                        )}
+                      </div>
+                    </GlassCard>
+                  </section>
+                  <section className="space-y-4">
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <span className="w-1 h-4 bg-sky-500 rounded-full"/>
+                      Registration Summary
+                    </h3>
+                    <GlassCard className="p-6 space-y-3">
+                      {["Company Name","Registration No (New)","Registration No (Old)","TIN Number","SST Number","Industry"].map((label, i) => {
+                        const values = [companyForm.name, companyForm.registrationNoNew, companyForm.registrationNoOld, companyForm.tinNumber, companyForm.sstNumber, companyForm.industry];
+                        const value = values[i];
+                        if (!value) return null;
+                        return (
+                          <div key={label} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+                            <p className="text-sm text-slate-500">{label}</p>
+                            <p className="text-sm font-semibold text-slate-800">{value}</p>
+                          </div>
+                        );
+                      })}
+                    </GlassCard>
+                  </section>
+                </div>
+              ) : companyModalView === "plans" ? (
+                <div className="space-y-6">
+                  <section className="space-y-4">
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <span className="w-1 h-4 bg-purple-500 rounded-full"/>
+                      Company Plans
+                    </h3>
+                    <GlassCard className="p-6 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-slate-500">Members can reference plan names in bulk import Excel</p>
+                        <GlassButton size="sm" className="text-xs gap-1" onClick={() => {
+                          const cp = companyForm.planConfig.companyPlans || [];
+                          const nextId = cp.length + 1;
+                          const planCategories: Record<string, { enabled: boolean; limit: number }> = {};
+                          for (const [key, cat] of Object.entries(companyForm.planConfig.categories)) {
+                            planCategories[key] = { enabled: cat.enabled, limit: cat.limit };
+                          }
+                          setCompanyForm({ ...companyForm, planConfig: { ...companyForm.planConfig, companyPlans: [...cp, { name: `Plan ${nextId}`, type: companyForm.planConfig.type, lumpSumLimit: companyForm.planConfig.lumpSumLimit, categories: planCategories }] } });
+                        }}><Plus className="w-3 h-3" /> Add Plan</GlassButton>
+                      </div>
+                      {(companyForm.planConfig.companyPlans || []).length === 0 ? (
+                        <p className="text-xs text-slate-400 py-4">No plans yet. Click Add Plan to create Plan 1, Plan 2 etc. Switch to Details tab and Save to persist.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {(companyForm.planConfig.companyPlans || []).map((plan, idx) => (
+                            <div key={idx} className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
+                              <div className="flex items-center gap-2">
+                                <input className="flex-1 glass-input px-3 py-1.5 text-sm font-bold bg-slate-100" value={plan.name} readOnly/>
+                                <GlassSelect className="px-2 py-1.5 text-xs font-semibold" value={plan.type} options={[{ label: "Category", value: "category" }, { label: "Lump Sum", value: "lump_sum" }]} onChange={(value) => {
+                                  const cp = [...(companyForm.planConfig.companyPlans || [])];
+                                  cp[idx] = { ...cp[idx], type: value as "category" | "lump_sum" };
+                                  setCompanyForm({ ...companyForm, planConfig: { ...companyForm.planConfig, companyPlans: cp } });
+                                }} />
+                                <GlassButton variant="ghost" size="icon" className="text-rose-500 hover:text-rose-700" onClick={() => {
+                                  const cp = (companyForm.planConfig.companyPlans || []).filter((_, i) => i !== idx);
+                                  setCompanyForm({ ...companyForm, planConfig: { ...companyForm.planConfig, companyPlans: cp } });
+                                }}><XCircle className="w-4 h-4" /></GlassButton>
+                              </div>
+                              {plan.type === "lump_sum" ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-slate-500">Limit</span>
+                                  <input type="number" className="w-32 glass-input px-2 py-1.5 text-xs" value={plan.lumpSumLimit || ""} placeholder="50000" onChange={(e) => {
+                                    const cp = [...(companyForm.planConfig.companyPlans || [])];
+                                    cp[idx] = { ...cp[idx], lumpSumLimit: Number(e.target.value) || 0 };
+                                    setCompanyForm({ ...companyForm, planConfig: { ...companyForm.planConfig, companyPlans: cp } });
+                                  }}/>
+                                </div>
+                              ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {Object.entries(plan.categories || {}).map(([key, cat]) => (
+                                  <div key={key} className="flex items-center gap-2 p-2 rounded-lg border border-slate-100">
+                                    <input type="checkbox" className="w-3 h-3" checked={cat.enabled} onChange={(e) => {
+                                      const cp = [...(companyForm.planConfig.companyPlans || [])];
+                                      cp[idx] = { ...cp[idx], categories: { ...cp[idx].categories, [key]: { ...cp[idx].categories?.[key], enabled: e.target.checked } } };
+                                      setCompanyForm({ ...companyForm, planConfig: { ...companyForm.planConfig, companyPlans: cp } });
+                                    }}/>
+                                    <span className="text-xs font-medium flex-1">{key.toUpperCase()}</span>
+                                    <input
+                                      type="number"
+                                      className="w-20 glass-input px-2 py-1 text-xs"
+                                      placeholder="Limit"
+                                      value={cat.limit || ""}
+                                      disabled={!cat.enabled}
+                                      onChange={(e) => {
+                                        const cp = [...(companyForm.planConfig.companyPlans || [])];
+                                        cp[idx] = { ...cp[idx], categories: { ...cp[idx].categories, [key]: { ...cp[idx].categories?.[key], limit: Number(e.target.value) || 0 } } };
+                                        setCompanyForm({ ...companyForm, planConfig: { ...companyForm.planConfig, companyPlans: cp } });
+                                      }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </GlassCard>
+                  </section>
+                </div>
               ) : selectedCompany ? (
                 <div className="space-y-6">
                   <GlassCard className="p-6 space-y-4">
@@ -1608,6 +1820,7 @@ export default function AdminCompanyManagementPage() {
                             setBulkImportFile(null);
                             setBulkImportError("");
                             setBulkImportPreview([]);
+                            setBulkPlanMode("company");
                             setIsBulkImportOpen(true);
                           }}
                         >
@@ -1802,16 +2015,6 @@ export default function AdminCompanyManagementPage() {
             </div>
 
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
-              {companyFormError && (
-                <div className={`mr-auto text-sm font-semibold self-center px-4 py-2 rounded-lg ${
-                  companyFormError.includes("successfully")
-                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                    : "bg-red-50 text-red-700 border border-red-200"
-                }`}>
-                  {companyFormError.includes("successfully") ? "✓ " : "⚠ "}
-                  {companyFormError}
-                </div>
-              )}
               <GlassButton
                 variant="secondary"
                 onClick={() => {
@@ -1823,20 +2026,26 @@ export default function AdminCompanyManagementPage() {
               >
                 Cancel
               </GlassButton>
-              {companyModalView === "details" && (
                 <GlassButton
                   disabled={disableCompanyEditing}
                   onClick={async () => {
                     if (disableCompanyEditing) return;
                     if (!companyForm.companyId || !companyForm.name || !companyForm.registrationNoNew) {
                       setCompanyFormError("Please complete Company ID, Company Name, and Registration No. (New).");
+                      showToast("Please complete Company ID, Company Name, and Registration No. (New).", "error");
                       return;
                     }
                     const isEditing = Boolean(editingCompanyId);
                     // Safety: prevent duplicate creation when editing
                     if (isEditing && companyForm.companyId !== editingCompanyId) {
                       setCompanyFormError("Form ID mismatch detected. Please close and re-open the editor.");
+                      showToast("Form ID mismatch detected. Please close and re-open the editor.", "error");
                       return;
+                    }
+                    // Confirmation prompt for new company creation
+                    if (!isEditing) {
+                      const confirmed = window.confirm(`Create new company "${companyForm.name}" (ID: ${companyForm.companyId})?`);
+                      if (!confirmed) return;
                     }
                     const normalizedCompany = {
                       ...companyForm,
@@ -1848,30 +2057,37 @@ export default function AdminCompanyManagementPage() {
                     };
                     if (!normalizedCompany.hrName) {
                       setCompanyFormError("HR name is required.");
+                      showToast("HR name is required.", "error");
                       return;
                     }
                     if (!normalizedCompany.contactEmail || !isValidEmail(normalizedCompany.contactEmail)) {
                       setCompanyFormError("Please enter a valid HR contact email.");
+                      showToast("Please enter a valid HR contact email.", "error");
                       return;
                     }
                     if (!normalizedCompany.contactPhoneName) {
                       setCompanyFormError("Primary contact person name is required.");
+                      showToast("Primary contact person name is required.", "error");
                       return;
                     }
                     if (!isValidPhone(normalizedCompany.contactPhone)) {
                       setCompanyFormError("Primary contact phone format is invalid.");
+                      showToast("Primary contact phone format is invalid.", "error");
                       return;
                     }
                     if (normalizedCompany.contactPhoneSecondary && !normalizedCompany.contactPhoneSecondaryName) {
                       setCompanyFormError("Second contact person name is required when second contact number is filled.");
+                      showToast("Second contact person name is required when second contact number is filled.", "error");
                       return;
                     }
                     if (normalizedCompany.contactPhoneSecondary && !isValidPhone(normalizedCompany.contactPhoneSecondary)) {
                       setCompanyFormError("Second contact phone format is invalid.");
+                      showToast("Second contact phone format is invalid.", "error");
                       return;
                     }
                     if (normalizedCompany.contactPhoneSecondaryName && !normalizedCompany.contactPhoneSecondary) {
                       setCompanyFormError("Second contact number is required when second contact person name is filled.");
+                      showToast("Second contact number is required when second contact person name is filled.", "error");
                       return;
                     }
                     setCompanyFormError("");
@@ -1886,6 +2102,7 @@ export default function AdminCompanyManagementPage() {
                       );
                       // Show success feedback — stays visible longer for user confirmation
                       setCompanyFormError(`${isEditing ? "Updated" : "Created"} successfully ✓`);
+                      showToast(`${isEditing ? "Updated" : "Created"} successfully ✓`, "success");
                       setTimeout(() => {
                         setCompanyForm(createEmptyCompanyForm());
                         setEditingCompanyId(null);
@@ -1896,13 +2113,13 @@ export default function AdminCompanyManagementPage() {
                       return;
                     } catch (error) {
                       setCompanyFormError(normalizeSupabaseErrorMessage(error, "Failed to save company."));
+                      showToast(normalizeSupabaseErrorMessage(error, "Failed to save company."), "error");
                       return;
                     }
                   }}
                 >
                   {isCompanyAccessPending ? "Checking Access..." : editingCompanyId ? "Update Company" : "Save Company"}
                 </GlassButton>
-              )}
             </div>
           </GlassCard>
         </div>
@@ -1954,27 +2171,19 @@ export default function AdminCompanyManagementPage() {
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700">Nationality</label>
                     <div className="relative">
-                      <select className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent" value={memberForm.nationality} onChange={(e) => setMemberForm({ ...memberForm, nationality: e.target.value, idType: e.target.value === "Malaysia" ? "NRIC" : "Passport" })}>
-                        {NATIONALITIES.map((nationality) => (
-                          <option key={nationality} value={nationality}>
-                            {nationality}
-                          </option>
-                        ))}
-                      </select>
+                      <GlassSelect className="pl-10 pr-4 py-2.5 bg-transparent" value={memberForm.nationality} options={NATIONALITIES.map((nationality) => ({ label: nationality, value: nationality }))} onChange={(value) => setMemberForm({ ...memberForm, nationality: value, idType: value === "Malaysia" ? "NRIC" : "Passport" })} />
                       <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                     </div>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700">ID Type <span className="text-red-500">*</span></label>
                     <div className="relative">
-                      <select
-                        className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
+                      <GlassSelect
+                        className="pl-10 pr-4 py-2.5 bg-transparent"
                         value={memberForm.idType}
-                        onChange={(e) => setMemberForm({ ...memberForm, idType: e.target.value as "NRIC" | "Passport", nricPassport: "", passportExpiry: "", passportFileName: "" })}
-                      >
-                        <option value="NRIC">NRIC</option>
-                        <option value="Passport">Passport</option>
-                      </select>
+                        options={[{ label: "NRIC", value: "NRIC" }, { label: "Passport", value: "Passport" }]}
+                        onChange={(value) => setMemberForm({ ...memberForm, idType: value as "NRIC" | "Passport", nricPassport: "", passportExpiry: "", passportFileName: "" })}
+                      />
                       <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                     </div>
                   </div>
@@ -2004,11 +2213,12 @@ export default function AdminCompanyManagementPage() {
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700">Gender</label>
                     <div className="relative">
-                      <select
-                        className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
+                      <GlassSelect
+                        className="pl-10 pr-4 py-2.5 bg-transparent"
                         value={memberForm.gender}
-                        onChange={(e) => {
-                          const nextGender = e.target.value as "Male" | "Female";
+                        options={[{ label: "Male", value: "Male" }, { label: "Female", value: "Female" }]}
+                        onChange={(value) => {
+                          const nextGender = value as "Male" | "Female";
                           setMemberForm((prev) => ({
                             ...prev,
                             gender: nextGender,
@@ -2019,10 +2229,7 @@ export default function AdminCompanyManagementPage() {
                             ),
                           }));
                         }}
-                      >
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                      </select>
+                      />
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                     </div>
                   </div>
@@ -2064,20 +2271,15 @@ export default function AdminCompanyManagementPage() {
                     <p className="text-[10px] text-slate-400 pl-1">Required for password reset & notifications</p>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-slate-700">Contact Number</label>
+                    <label className="text-sm font-medium text-slate-700">HR Number</label>
                     <div className="flex gap-3">
                       <div className="relative w-28">
-                        <select
-                          className="w-full glass-input px-3 py-2.5 bg-transparent"
+                        <GlassSelect
+                          className="px-3 py-2.5 bg-transparent"
                           value={memberForm.phoneCountryCode}
-                          onChange={(e) => setMemberForm({ ...memberForm, phoneCountryCode: e.target.value })}
-                        >
-                          {DIAL_CODES.map((code) => (
-                            <option key={code} value={code}>
-                              {code}
-                            </option>
-                          ))}
-                        </select>
+                          options={DIAL_CODES.map((code) => ({ label: code, value: code }))}
+                          onChange={(value) => setMemberForm({ ...memberForm, phoneCountryCode: value })}
+                        />
                       </div>
                       <input
                         type="tel"
@@ -2431,15 +2633,16 @@ export default function AdminCompanyManagementPage() {
                           <div className="space-y-1.5">
                             <label className="text-sm font-medium text-slate-700">Dependent Relationship <span className="text-red-500">*</span></label>
                             <div className="relative">
-                              <select
-                                className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
+                              <GlassSelect
+                                className="pl-10 pr-4 py-2.5 bg-transparent"
                                 value={dependent.relationship}
-                                onChange={(e) =>
+                                options={[{ label: "Spouse", value: "Spouse" }, { label: "Child", value: "Child" }, { label: "Parent", value: "Parent" }]}
+                                onChange={(value) =>
                                   setMemberForm((prev) => ({
                                     ...prev,
                                     dependents: prev.dependents.map((item, i) => {
                                       if (i !== index) return item;
-                                      const nextRelationship = e.target.value as "Spouse" | "Child" | "Parent";
+                                      const nextRelationship = value as "Spouse" | "Child" | "Parent";
                                       return {
                                         ...item,
                                         relationship: nextRelationship,
@@ -2448,33 +2651,27 @@ export default function AdminCompanyManagementPage() {
                                     }),
                                   }))
                                 }
-                              >
-                                <option value="Spouse">Spouse</option>
-                                <option value="Child">Child</option>
-                                <option value="Parent">Parent</option>
-                              </select>
+                              />
                               <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                             </div>
                           </div>
                           <div className="space-y-1.5">
                             <label className="text-sm font-medium text-slate-700">Dependent Gender <span className="text-red-500">*</span></label>
                             <div className="relative">
-                              <select
-                                className="w-full glass-input pl-10 pr-4 py-2.5 bg-transparent"
+                              <GlassSelect
+                                className="pl-10 pr-4 py-2.5 bg-transparent"
                                 value={dependent.relationship === "Spouse" ? getOppositeBinaryGender(memberForm.gender) : dependent.gender}
                                 disabled={dependent.relationship === "Spouse"}
-                                onChange={(e) =>
+                                options={[{ label: "Male", value: "Male" }, { label: "Female", value: "Female" }]}
+                                onChange={(value) =>
                                   setMemberForm((prev) => ({
                                     ...prev,
                                     dependents: prev.dependents.map((item, i) =>
-                                      i === index ? { ...item, gender: e.target.value as "Male" | "Female" } : item
+                                      i === index ? { ...item, gender: value as "Male" | "Female" } : item
                                     ),
                                   }))
                                 }
-                              >
-                                <option value="Male">Male</option>
-                                <option value="Female">Female</option>
-                              </select>
+                              />
                               <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
                             </div>
                           </div>
@@ -2644,7 +2841,6 @@ export default function AdminCompanyManagementPage() {
               </fieldset>
             </div>
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
-              {memberFormError && <p className="mr-auto text-xs text-red-500 font-medium self-center">{memberFormError}</p>}
               <GlassButton variant="secondary" onClick={() => setIsMemberModalOpen(false)}>Cancel</GlassButton>
               <GlassButton
                 disabled={disableCompanyEditing}
@@ -2652,14 +2848,17 @@ export default function AdminCompanyManagementPage() {
                   if (disableCompanyEditing) return;
                   if (!memberForm.staffId || !memberForm.fullName || !memberForm.email) {
                     setMemberFormError("Please complete Staff ID, Full Name, and Email.");
+                    showToast("Please complete Staff ID, Full Name, and Email.", "error");
                     return;
                   }
                   if (memberForm.planType === "lump_sum" && (typeof memberForm.lumpSumLimit !== "number" || memberForm.lumpSumLimit <= 0)) {
                     setMemberFormError("Please enter a valid lump sum limit.");
+                    showToast("Please enter a valid lump sum limit.", "error");
                     return;
                   }
                   if (!memberForm.nricPassport) {
                     setMemberFormError(`Please fill ${memberForm.idType === "NRIC" ? "NRIC No." : "Passport No."}.`);
+                    showToast(`Please fill ${memberForm.idType === "NRIC" ? "NRIC No." : "Passport No."}.`, "error");
                     return;
                   }
                   if (memberForm.idType === "Passport") {
@@ -2671,20 +2870,24 @@ export default function AdminCompanyManagementPage() {
                     });
                     if (!mainPassportValidation.valid) {
                       setMemberFormError(Object.values(mainPassportValidation.errors)[0] || "Passport details are required.");
+                      showToast(Object.values(mainPassportValidation.errors)[0] || "Passport details are required.", "error");
                       return;
                     }
                   }
                   for (const dependent of memberForm.dependents) {
                     if (!dependent.fullName || !dependent.relationship || !dependent.gender || !dependent.nricPassport) {
                       setMemberFormError("Please complete all dependent details.");
+                      showToast("Please complete all dependent details.", "error");
                       return;
                     }
                     if (dependent.relationship === "Spouse" && dependent.gender === memberForm.gender) {
                       setMemberFormError("Spouse gender must be opposite to the member gender.");
+                      showToast("Spouse gender must be opposite to the member gender.", "error");
                       return;
                     }
                     if (memberForm.idType === "Passport" && !dependent.passportExpiry) {
                       setMemberFormError("Dependent passport expiry date is required for foreigner member registration.");
+                      showToast("Dependent passport expiry date is required for foreigner member registration.", "error");
                       return;
                     }
                   }
@@ -2698,6 +2901,7 @@ export default function AdminCompanyManagementPage() {
                     });
                     if (relationshipError) {
                       setMemberFormError(relationshipError);
+                      showToast(relationshipError, "error");
                       return;
                     }
                     draftedDependents.push({
@@ -2894,12 +3098,24 @@ export default function AdminCompanyManagementPage() {
             <div className="overflow-y-auto p-8 custom-scrollbar space-y-6">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="text-sm text-slate-600">
-                  Use the template to ensure headers match the current plan configuration.
+                  Choose plan mode and download the matching template.
                 </div>
-                <GlassButton variant="secondary" className="gap-2" onClick={handleDownloadMemberTemplate}>
-                  <Download className="w-4 h-4" />
-                  Download Template
-                </GlassButton>
+                <div className="flex items-center gap-3">
+                  <GlassSelect
+                    className="px-2 py-1.5 text-xs font-semibold"
+                    value={bulkPlanMode}
+                    options={[{ label: "Company Default", value: "company" }, { label: "Custom (per-member)", value: "custom" }]}
+                    onChange={(value) => {
+                      setBulkPlanMode(value as "company" | "custom");
+                      setBulkImportFile(null);
+                      setBulkImportPreview([]);
+                    }}
+                  />
+                  <GlassButton variant="secondary" size="sm" className="gap-1 text-xs" onClick={handleDownloadMemberTemplate}>
+                    <Download className="w-3 h-3" />
+                    Template
+                  </GlassButton>
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -2991,9 +3207,6 @@ export default function AdminCompanyManagementPage() {
             </div>
 
             <div className="p-6 border-t border-slate-200/60 bg-slate-50 flex justify-end gap-3 z-20">
-              {bulkImportError && (
-                <p className="mr-auto text-xs text-red-500 font-medium self-center">{bulkImportError}</p>
-              )}
               <GlassButton variant="secondary" onClick={closeBulkImport} disabled={bulkImportIsSubmitting}>
                 Cancel
               </GlassButton>

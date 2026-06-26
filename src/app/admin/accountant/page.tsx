@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { GlassSelect } from "@/components/ui/GlassSelect";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { GlassInput } from "@/components/ui/GlassInput";
 import { GlassField } from "@/components/ui/GlassField";
 import { ResponsiveDataView } from "@/components/ui/ResponsiveDataView";
@@ -41,8 +43,8 @@ import {
 type AccountantTab = "member" | "vendor";
 type PayoutFilter = "all" | "complete" | "missing";
 
-const getPayoutBadgeClass = (status: AccountantQueueItem["payoutStatus"]) =>
-  status === "complete" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700";
+const getPayoutBadgeScheme = (status: AccountantQueueItem["payoutStatus"]): "success" | "warning" =>
+  status === "complete" ? "success" : "warning";
 
 const getScopeIcon = (scope: AccountantTab) => (scope === "member" ? Users : Building2);
 
@@ -284,13 +286,10 @@ export default function AccountantWorkspacePage() {
                 </td>
                 <td className="px-6 py-4">
                   <div className="space-y-1">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide ${getPayoutBadgeClass(
-                        item.payoutStatus
-                      )}`}
-                    >
-                      {item.payoutStatus === "complete" ? "Complete" : "Missing"}
-                    </span>
+                    <StatusBadge
+                      status={item.payoutStatus === "complete" ? "Complete" : "Missing"}
+                      scheme={getPayoutBadgeScheme(item.payoutStatus)}
+                    />
                     <p className="text-xs text-slate-500">{item.payoutSummary}</p>
                   </div>
                 </td>
@@ -301,13 +300,13 @@ export default function AccountantWorkspacePage() {
                 <td className="px-6 py-4 text-right">
                   <div className="flex justify-end gap-2">
                     <Link href={item.claimHref}>
-                      <GlassButton variant="secondary" className="h-9 px-3 text-sm">
+                      <GlassButton variant="secondary" size="sm">
                         Open Claim
                       </GlassButton>
                     </Link>
                     <GlassButton
                       variant={item.payoutStatus === "complete" ? "primary" : "ghost"}
-                      className="h-9 px-3 text-sm"
+                      size="sm"
                       disabled={!canOperate || item.payoutStatus === "missing" || submittingId === item.id}
                       onClick={() => openCompletionModal(item)}
                     >
@@ -349,13 +348,10 @@ export default function AccountantWorkspacePage() {
             }
             subtitle={item.providerLabel}
             badge={
-              <span
-                className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${getPayoutBadgeClass(
-                  item.payoutStatus
-                )}`}
-              >
-                {item.payoutStatus === "complete" ? "Payout Complete" : "Payout Missing"}
-              </span>
+              <StatusBadge
+                status={item.payoutStatus === "complete" ? "Payout Complete" : "Payout Missing"}
+                scheme={getPayoutBadgeScheme(item.payoutStatus)}
+              />
             }
             meta={
               <>
@@ -371,12 +367,12 @@ export default function AccountantWorkspacePage() {
             footer={
               <div className="flex flex-wrap justify-end gap-2">
                 <Link href={item.claimHref}>
-                  <GlassButton variant="secondary" className="h-9 px-3 text-sm">
+                  <GlassButton variant="secondary" size="sm">
                     Open Claim
                   </GlassButton>
                 </Link>
                 <GlassButton
-                  className="h-9 px-3 text-sm"
+                  size="sm"
                   disabled={!canOperate || item.payoutStatus === "missing" || submittingId === item.id}
                   onClick={() => openCompletionModal(item)}
                 >
@@ -509,15 +505,16 @@ export default function AccountantWorkspacePage() {
             </div>
           </GlassField>
           <GlassField label="Payout Status">
-            <select
-              className="w-full glass-input px-4 py-2.5 bg-transparent"
+            <GlassSelect
               value={payoutFilter}
-              onChange={(event) => setPayoutFilter(event.target.value as PayoutFilter)}
-            >
-              <option value="all">All</option>
-              <option value="complete">Complete</option>
-              <option value="missing">Missing</option>
-            </select>
+              options={[
+                { label: "All", value: "all" },
+                { label: "Complete", value: "complete" },
+                { label: "Missing", value: "missing" },
+              ]}
+              onChange={(value) => setPayoutFilter(value as PayoutFilter)}
+              placeholder="Payout Status"
+            />
           </GlassField>
           <div className="flex items-end">
             <GlassButton variant="secondary" className="w-full lg:w-auto gap-2" onClick={resetFilters}>
@@ -538,15 +535,16 @@ export default function AccountantWorkspacePage() {
           />
         </div>
         <div className="grid grid-cols-1 gap-3 pt-1">
-          <select
-            className="w-full glass-input px-4 py-2.5 bg-transparent"
+          <GlassSelect
             value={payoutFilter}
-            onChange={(event) => setPayoutFilter(event.target.value as PayoutFilter)}
-          >
-            <option value="all">All payout status</option>
-            <option value="complete">Payout complete</option>
-            <option value="missing">Payout missing</option>
-          </select>
+            options={[
+              { label: "All payout status", value: "all" },
+              { label: "Payout complete", value: "complete" },
+              { label: "Payout missing", value: "missing" },
+            ]}
+            onChange={(value) => setPayoutFilter(value as PayoutFilter)}
+            placeholder="Payout Status"
+          />
           <GlassButton variant="secondary" className="w-full gap-2" onClick={resetFilters}>
             <RotateCcw className="w-4 h-4" />
             Reset Filters

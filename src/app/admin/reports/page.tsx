@@ -2,6 +2,8 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { GlassSelect } from "@/components/ui/GlassSelect";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ResponsiveDataView } from "@/components/ui/ResponsiveDataView";
 import { MobileRecordCard } from "@/components/ui/MobileRecordCard";
 import {
@@ -404,31 +406,31 @@ export default function ReportsPage() {
           <p className="text-slate-500">System-wide performance and utilization tracking.</p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          <select
-            className="glass-select px-4 py-2 text-sm min-w-[180px]"
+          <GlassSelect
+            className="min-w-[180px]"
             value={selectedCompanyId}
-            onChange={(e) => setSelectedCompanyId(e.target.value)}
-          >
-            <option value="all">All Companies</option>
-            {companies.map((company) => (
-              <option key={company.companyId} value={company.companyId}>
-                {company.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { label: "All Companies", value: "all" },
+              ...companies.map((company) => ({
+                label: company.name,
+                value: company.companyId,
+              })),
+            ]}
+            onChange={(value) => setSelectedCompanyId(value)}
+            placeholder="Select company"
+          />
           <div className="relative">
             <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 z-10" />
-            <select
-              className="glass-select min-w-[172px] pl-9 pr-4 py-2 text-sm"
+            <GlassSelect
+              className="min-w-[172px] pl-9"
               value={effectiveSelectedPeriod}
-              onChange={(event) => setSelectedPeriod(event.target.value)}
-            >
-              {availablePeriods.map((periodKey) => (
-                <option key={periodKey} value={periodKey}>
-                  {periodKey === "all" ? "All Periods" : formatMonthLabel(periodKey)}
-                </option>
-              ))}
-            </select>
+              options={availablePeriods.map((periodKey) => ({
+                label: periodKey === "all" ? "All Periods" : formatMonthLabel(periodKey),
+                value: periodKey,
+              }))}
+              onChange={(value) => setSelectedPeriod(value)}
+              placeholder="All Periods"
+            />
           </div>
           <GlassButton
             className="gap-2"
@@ -650,14 +652,16 @@ export default function ReportsPage() {
                         <td className="px-4 py-3 text-slate-500">{log.date}</td>
                         <td className="px-4 py-3 text-right font-bold text-slate-800">RM {log.amount.toLocaleString()}</td>
                         <td className="px-4 py-3">
-                          <span className={cn(
-                            "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
-                            log.status === "Approved" ? "bg-emerald-100 text-emerald-700" :
-                            log.status === "Rejected" ? "bg-rose-100 text-rose-700" :
-                            "bg-amber-100 text-amber-700"
-                          )}>
-                            {log.status}
-                          </span>
+                          <StatusBadge
+                            status={log.status}
+                            scheme={
+                              log.status === "Approved"
+                                ? "success"
+                                : log.status === "Rejected"
+                                  ? "danger"
+                                  : "warning"
+                            }
+                          />
                         </td>
                       </tr>
                     ))}
@@ -681,14 +685,16 @@ export default function ReportsPage() {
                     title={<span className="font-mono">{log.reference}</span>}
                     subtitle={log.date}
                     badge={
-                      <span className={cn(
-                        "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
-                        log.status === "Approved" ? "bg-emerald-100 text-emerald-700" :
-                        log.status === "Rejected" ? "bg-rose-100 text-rose-700" :
-                        "bg-amber-100 text-amber-700"
-                      )}>
-                        {log.status}
-                      </span>
+                      <StatusBadge
+                        status={log.status}
+                        scheme={
+                          log.status === "Approved"
+                            ? "success"
+                            : log.status === "Rejected"
+                              ? "danger"
+                              : "warning"
+                        }
+                      />
                     }
                     meta={<span>RM {log.amount.toLocaleString("en-MY")}</span>}
                   />

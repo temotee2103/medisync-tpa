@@ -26,6 +26,7 @@ import { fetchAdminSession } from "@/lib/adminSession";
 import type { AdminRole } from "@/lib/adminSession";
 import { resetSharedClientState } from "@/lib/clientStateReset";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { ToastContainer } from "@/components/ui/Toast";
 
 export default function AdminLayout({
   children,
@@ -237,6 +238,7 @@ export default function AdminLayout({
         <main className="flex-1 p-4 md:p-8">
           {children}
         </main>
+        <ToastContainer />
       </div>
     </div>
   );

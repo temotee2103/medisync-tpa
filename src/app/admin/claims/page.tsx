@@ -2,6 +2,8 @@
 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
+import { GlassSelect } from "@/components/ui/GlassSelect";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ResponsiveDataView } from "@/components/ui/ResponsiveDataView";
 import { MobileRecordCard } from "@/components/ui/MobileRecordCard";
 import { MobileDetailModal } from "@/components/ui/MobileDetailModal";
@@ -62,19 +64,19 @@ import { canDeleteAdminResource, canOperateAdminPage } from "@/lib/adminPermissi
 const getPrimaryStaffId = (staffId: string) =>
   staffId.includes("-DEP-") ? staffId.split("-DEP-")[0] : staffId;
 
-const getLifecycleBadgeClass = (status?: string) => {
+const getLifecycleBadgeScheme = (status?: string): "success" | "warning" | "danger" | "neutral" | "info" => {
   switch (normalizeUnifiedClaimStatus(status)) {
     case "approved":
-      return "bg-emerald-100 text-emerald-700";
+      return "success";
     case "rejected":
-      return "bg-rose-100 text-rose-700";
+      return "danger";
     case "in_process":
-      return "bg-sky-100 text-sky-700";
+      return "info";
     case "request_additional_information":
-      return "bg-amber-100 text-amber-700";
+      return "warning";
     case "submitted":
     default:
-      return "bg-slate-100 text-slate-700";
+      return "neutral";
   }
 };
 
@@ -594,32 +596,30 @@ export default function ClaimsListPage() {
     <>
       <div className="space-y-1.5">
         <label className="text-sm font-medium text-slate-700">Status</label>
-        <select
-          className="w-full glass-input px-4 py-2.5 bg-transparent"
+        <GlassSelect
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as LifecycleFilterValue)}
-        >
-          <option value="all">All</option>
-          {UNIFIED_CLAIM_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {formatUnifiedClaimStatus(status)}
-            </option>
-          ))}
-        </select>
+          options={[
+            { label: "All", value: "all" },
+            ...UNIFIED_CLAIM_STATUSES.map((status) => ({
+              label: formatUnifiedClaimStatus(status),
+              value: status,
+            })),
+          ]}
+          onChange={(value) => setStatusFilter(value as LifecycleFilterValue)}
+          placeholder="Status"
+        />
       </div>
       <div className="space-y-1.5">
         <label className="text-sm font-medium text-slate-700">Clinic / Provider</label>
-        <select
-          className="w-full glass-input px-4 py-2.5 bg-transparent"
+        <GlassSelect
           value={providerFilter}
-          onChange={(e) => setProviderFilter(e.target.value)}
-        >
-          {providerOptions.map((provider) => (
-            <option key={provider} value={provider}>
-              {provider}
-            </option>
-          ))}
-        </select>
+          options={providerOptions.map((provider) => ({
+            label: provider,
+            value: provider,
+          }))}
+          onChange={(value) => setProviderFilter(value)}
+          placeholder="Clinic / Provider"
+        />
       </div>
     </>
   );
@@ -726,13 +726,10 @@ export default function ClaimsListPage() {
                   {formatCurrency(row.amount)}
                 </td>
                 <td className="px-6 py-4">
-                  <span
-                    className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide ${getLifecycleBadgeClass(
-                      row.status
-                    )}`}
-                  >
-                    {formatUnifiedClaimStatus(row.status)}
-                  </span>
+                  <StatusBadge
+                    status={formatUnifiedClaimStatus(row.status)}
+                    scheme={getLifecycleBadgeScheme(row.status)}
+                  />
                 </td>
                 <td className="px-6 py-4 text-right">
                   <div className="flex justify-end gap-1.5">{row.actions}</div>
@@ -775,13 +772,10 @@ export default function ClaimsListPage() {
             }
             subtitle={row.providerLabel}
             badge={
-              <span
-                className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${getLifecycleBadgeClass(
-                  row.status
-                )}`}
-              >
-                {formatUnifiedClaimStatus(row.status)}
-              </span>
+              <StatusBadge
+                status={formatUnifiedClaimStatus(row.status)}
+                scheme={getLifecycleBadgeScheme(row.status)}
+              />
             }
             meta={
               <>
@@ -1135,9 +1129,10 @@ export default function ClaimsListPage() {
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <h4 className="text-xl font-bold text-slate-800">{selectedMemberClaim.patient}</h4>
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${getLifecycleBadgeClass(selectedMemberClaim.lifecycleStatus || selectedMemberClaim.status)}`}>
-                      {formatUnifiedClaimStatus(selectedMemberClaim.lifecycleStatus || selectedMemberClaim.status)}
-                    </span>
+                    <StatusBadge
+                      status={formatUnifiedClaimStatus(selectedMemberClaim.lifecycleStatus || selectedMemberClaim.status)}
+                      scheme={getLifecycleBadgeScheme(selectedMemberClaim.lifecycleStatus || selectedMemberClaim.status)}
+                    />
                   </div>
                   <p className="text-sm text-slate-500">{selectedMemberClaim.providerName}</p>
                 </div>

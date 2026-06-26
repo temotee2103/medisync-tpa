@@ -19,14 +19,16 @@ const baseHeaders = [
   "passportFileName",
   "status",
   "tempPassword",
+  "planName",
   "planType",
   "lumpSumLimit",
 ] as const;
 
-export function buildMemberImportHeaders(company: Company) {
+export function buildMemberImportHeaders(company: Company, includePlanColumns = true) {
   const categoryKeys = Object.keys(company.planConfig.categories);
-  const categoryHeaders = categoryKeys.flatMap((key) => [`cat_${key}_enabled`, `cat_${key}_limit`]);
-  return [...baseHeaders, ...categoryHeaders];
+  const categoryHeaders = includePlanColumns ? categoryKeys.flatMap((key) => [`cat_${key}_enabled`, `cat_${key}_limit`]) : [];
+  const planHeaders = includePlanColumns ? baseHeaders : baseHeaders.filter(h => !["planType", "lumpSumLimit"].includes(h));
+  return [...planHeaders, ...categoryHeaders];
 }
 
 const downloadBlob = (filename: string, blob: Blob) => {
@@ -39,9 +41,9 @@ const downloadBlob = (filename: string, blob: Blob) => {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 };
 
-export function downloadMemberImportTemplate(company: Company) {
+export function downloadMemberImportTemplate(company: Company, includePlanColumns = true) {
   if (typeof window === "undefined") return;
-  const headers = buildMemberImportHeaders(company);
+  const headers = buildMemberImportHeaders(company, includePlanColumns);
   const ws = XLSX.utils.aoa_to_sheet([headers]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Members");

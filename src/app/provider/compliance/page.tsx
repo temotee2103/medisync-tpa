@@ -57,23 +57,20 @@ const formatProviderRole = (role?: string | null) => {
   return normalized === "doctor" ? "Doctor" : "Provider Admin";
 };
 
-const downloadComplianceDocument = async (
+const previewComplianceDocument = async (
   fileName: string,
   fileDataUrl?: string,
   storagePath?: string,
   credentialId?: string,
 ) => {
   if (fileDataUrl) {
-    const anchor = document.createElement("a");
-    anchor.href = fileDataUrl;
-    anchor.download = fileName;
-    anchor.click();
+    window.open(fileDataUrl, "_blank");
     return;
   }
 
   const resolvedPath = storagePath || (credentialId ? await fetchCredentialStoragePath(credentialId) : null);
   if (!resolvedPath) {
-    showToast("Document not available for download.", "error");
+    showToast("Document not available.", "error");
     return;
   }
 
@@ -84,10 +81,7 @@ const downloadComplianceDocument = async (
 
   // data: URL from lazy fetch
   if (resolvedPath.startsWith("data:")) {
-    const anchor = document.createElement("a");
-    anchor.href = resolvedPath;
-    anchor.download = fileName;
-    anchor.click();
+    window.open(resolvedPath, "_blank");
     return;
   }
 
@@ -98,11 +92,9 @@ const downloadComplianceDocument = async (
       .download(resolvedPath);
     if (error) throw error;
     const url = URL.createObjectURL(data);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = fileName;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    window.open(url, "_blank");
+    // Keep blob alive for the new tab to load, then revoke
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch {
     showToast("Unable to open document.", "error");
   }
@@ -449,7 +441,7 @@ export default function CompliancePage() {
                     disabled={!currentDoc?.fileName}
                     onClick={() => {
                       if (!currentDoc?.fileName) return;
-                      downloadComplianceDocument(currentDoc.fileName, currentDoc.fileDataUrl, currentDoc.storagePath, currentDoc.credentialId);
+                      previewComplianceDocument(currentDoc.fileName, currentDoc.fileDataUrl, currentDoc.storagePath, currentDoc.credentialId);
                     }}
                   >
                     Open
@@ -567,7 +559,7 @@ export default function CompliancePage() {
                       disabled={!doc.fileName}
                       onClick={() => {
                         if (!doc.fileName) return;
-                        downloadComplianceDocument(doc.fileName, doc.fileDataUrl, doc.storagePath, doc.credentialId);
+                        previewComplianceDocument(doc.fileName, doc.fileDataUrl, doc.storagePath, doc.credentialId);
                       }}
                     >
                       Open

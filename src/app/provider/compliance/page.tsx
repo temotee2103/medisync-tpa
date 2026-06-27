@@ -39,6 +39,7 @@ import {
 } from "@/lib/providerSession";
 import { getProviderSubmissionGuard } from "@/lib/providerComplianceGuard";
 import { showToast } from "@/components/ui/Toast";
+import { uploadCredentialFile } from "@/lib/providerCredentialStorage";
 
 type CurrentProviderUserRow = {
   id?: string | null;
@@ -111,7 +112,7 @@ export default function CompliancePage() {
   const [isProviderContextResolved, setIsProviderContextResolved] = useState(false);
   const [docUploads, setDocUploads] = useState<Record<string, {
     fileName: string; fileDataUrl: string; fileMimeType: string;
-    expiryDate: string; error: string;
+    expiryDate: string; error: string; file?: File;
   }>>({});
   const [apcUploadError, setApcUploadError] = useState("");
   const [apcUpload, setApcUpload] = useState<{
@@ -120,6 +121,7 @@ export default function CompliancePage() {
     fileDataUrl: string;
     fileMimeType: string;
     expiryDate: string;
+    file?: File;
   }>({
     providerUserId: "",
     fileName: "",
@@ -311,7 +313,13 @@ export default function CompliancePage() {
     setDocUploadField(docType, "error", "");
     setSubmittingDoc(docType);
     try {
-      await insertProviderCredential({ vendorId: session.vendorId, docType: docType as ProviderCredentialDocType, providerUserId: null, fileName: upload.fileName, fileDataUrl: upload.fileDataUrl, fileMimeType: upload.fileMimeType, expiryDate: upload.expiryDate, submittedBy: "vendor" });
+      const upload = docUploads[docType];
+      let storagePath: string | undefined;
+      if (upload.file) {
+        const result = await uploadCredentialFile(session.vendorId, docType, upload.file);
+        storagePath = result.storagePath;
+      }
+      await insertProviderCredential({ vendorId: session.vendorId, docType: docType as ProviderCredentialDocType, providerUserId: null, fileName: upload.fileName, storagePath, fileMimeType: upload.fileMimeType, expiryDate: upload.expiryDate, submittedBy: "vendor" });
       setDocUploadField(docType, "fileName", "");
       setDocUploadField(docType, "fileDataUrl", "");
       setDocUploadField(docType, "fileMimeType", "");
@@ -460,11 +468,9 @@ export default function CompliancePage() {
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      readFileAsDataUrl(file).then((dataUrl) => {
-                        setDocUploadField(config.key, "fileName", file.name);
-                        setDocUploadField(config.key, "fileDataUrl", dataUrl);
-                        setDocUploadField(config.key, "fileMimeType", file.type);
-                      });
+                      setDocUploadField(config.key, "fileName", file.name);
+                      setDocUploadField(config.key, "fileMimeType", file.type);
+                      setDocUploads(prev => ({ ...prev, [config.key]: { ...prev[config.key], file } }));
                     }}
                   />
                 </label>
@@ -601,14 +607,12 @@ export default function CompliancePage() {
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
-                  readFileAsDataUrl(file).then((dataUrl) => {
-                    setApcUpload((prev) => ({
-                      ...prev,
-                      fileName: file.name,
-                      fileDataUrl: dataUrl,
-                      fileMimeType: file.type,
-                    }));
-                  });
+                  setApcUpload((prev) => ({
+                    ...prev,
+                    fileName: file.name,
+                    fileMimeType: file.type,
+                    file,
+                  }));
                 }}
               />
             </label>
@@ -622,10 +626,15 @@ export default function CompliancePage() {
                   }
                   setApcUploadError("");
                   try {
+                    let storagePath: string | undefined;
+                    if (apcUpload.file) {
+                      const result = await uploadCredentialFile(session.vendorId, "apc", apcUpload.file);
+                      storagePath = result.storagePath;
+                    }
                     await submitVendorDoctorApc(session.vendorId, {
                       providerUserId: selectedApcDoctorId,
                       fileName: apcUpload.fileName,
-                      fileDataUrl: apcUpload.fileDataUrl,
+                      storagePath,
                       fileMimeType: apcUpload.fileMimeType,
                       expiryDate: apcUpload.expiryDate,
                       submittedBy: "vendor",

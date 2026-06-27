@@ -24,6 +24,7 @@ import {
 import { GlassSelect } from "@/components/ui/GlassSelect";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { showToast } from "@/components/ui/Toast";
+import { uploadCredentialFile } from "@/lib/providerCredentialStorage";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { downloadText } from "@/lib/download";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -267,13 +268,19 @@ export default function VendorManagementPage() {
   const [memberFormError, setMemberFormError] = useState("");
   const [vendorActionNotice, setVendorActionNotice] = useState("");
   const [uploadDocType, setUploadDocType] = useState<string | null>(null);
-  const [uploadDraft, setUploadDraft] = useState({
+  const [uploadDraft, setUploadDraft] = useState<{
+    fileName: string; fileDataUrl: string; fileMimeType: string;
+    expiryDate: string; file?: File;
+  }>({
     fileName: "",
     fileDataUrl: "",
     fileMimeType: "",
     expiryDate: "",
   });
-  const [apcUploadDraft, setApcUploadDraft] = useState({
+  const [apcUploadDraft, setApcUploadDraft] = useState<{
+    fileName: string; fileDataUrl: string; fileMimeType: string;
+    expiryDate: string; file?: File;
+  }>({
     fileName: "",
     fileDataUrl: "",
     fileMimeType: "",
@@ -1395,9 +1402,8 @@ export default function VendorManagementPage() {
                                 onChange={async (e) => {
                                   const file = e.target.files?.[0];
                                   if (!file) return;
-                                  const dataUrl = await readFileAsDataUrl(file);
                                   setUploadDraft((prev) => ({
-                                    ...prev, fileName: file.name, fileDataUrl: dataUrl, fileMimeType: file.type,
+                                    ...prev, fileName: file.name, fileMimeType: file.type, file,
                                   }));
                                 }}
                               />
@@ -1413,12 +1419,17 @@ export default function VendorManagementPage() {
                                   onChange={(e) => setUploadDraft((prev) => ({ ...prev, expiryDate: e.target.value }))} />
                               )}
                             </div>
-                            <GlassButton size="sm" onClick={() => {
+                            <GlassButton size="sm" onClick={async () => {
                               if (disableVendorEditing) return;
                               if (!uploadDraft.fileName) return;
                               if (!isNonExpiry && !uploadDraft.expiryDate) return;
+                              let storagePath: string | undefined;
+                              if (uploadDraft.file) {
+                                const result = await uploadCredentialFile(complianceVendor.vendorId, docType, uploadDraft.file);
+                                storagePath = result.storagePath;
+                              }
                               submitVendorDocument(complianceVendor.vendorId, {
-                                fileName: uploadDraft.fileName, fileDataUrl: uploadDraft.fileDataUrl,
+                                fileName: uploadDraft.fileName, storagePath,
                                 fileMimeType: uploadDraft.fileMimeType,
                                 docType,
                                 expiryDate: isNonExpiry ? undefined : uploadDraft.expiryDate,
@@ -1612,12 +1623,11 @@ export default function VendorManagementPage() {
                                   onChange={async (e) => {
                                     const file = e.target.files?.[0];
                                     if (!file) return;
-                                    const dataUrl = await readFileAsDataUrl(file);
                                     setApcUploadDraft((prev) => ({
                                       ...prev,
                                       fileName: file.name,
-                                      fileDataUrl: dataUrl,
                                       fileMimeType: file.type,
+                                      file,
                                     }));
                                   }}
                                 />
@@ -1630,14 +1640,19 @@ export default function VendorManagementPage() {
                                 onChange={(e) => setApcUploadDraft((prev) => ({ ...prev, expiryDate: e.target.value }))}
                               />
                               <GlassButton
-                                onClick={() => {
+                                onClick={async () => {
                                   if (disableVendorEditing) return;
                                   if (!selectedDoctor.providerUserUuid) return;
                                   if (!apcUploadDraft.fileName || !apcUploadDraft.expiryDate) return;
+                                  let storagePath: string | undefined;
+                                  if (apcUploadDraft.file) {
+                                    const result = await uploadCredentialFile(complianceVendor.vendorId, "apc", apcUploadDraft.file);
+                                    storagePath = result.storagePath;
+                                  }
                                   submitVendorDoctorApc(complianceVendor.vendorId, {
                                     providerUserId: selectedDoctor.providerUserUuid,
                                     fileName: apcUploadDraft.fileName,
-                                    fileDataUrl: apcUploadDraft.fileDataUrl,
+                                    storagePath,
                                     fileMimeType: apcUploadDraft.fileMimeType,
                                     expiryDate: apcUploadDraft.expiryDate,
                                     submittedBy: "admin",

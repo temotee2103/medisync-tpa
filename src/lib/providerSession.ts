@@ -694,7 +694,7 @@ export const insertProviderCredential = async (payload: {
   docType: ProviderCredentialDocType;
   providerUserId?: string | null;
   fileName: string;
-  fileDataUrl?: string;
+  storagePath?: string;
   fileMimeType?: string;
   expiryDate?: string;
   submittedBy: "vendor" | "admin";
@@ -714,7 +714,7 @@ export const insertProviderCredential = async (payload: {
       provider_id: retryUuid,
       provider_user_id: providerUserUuid || null,
       doc_type: payload.docType,
-      storage_path: payload.fileDataUrl || null,
+      storage_path: payload.storagePath || null,
       expiry_date: payload.expiryDate || null,
       status: "submitted",
       file_name: payload.fileName,
@@ -731,7 +731,7 @@ export const insertProviderCredential = async (payload: {
     provider_id: providerUuid,
     provider_user_id: providerUserUuid || null,
     doc_type: payload.docType,
-    storage_path: payload.fileDataUrl || null,
+    storage_path: payload.storagePath || null,
     expiry_date: payload.expiryDate || null,
     status: "submitted",
     file_name: payload.fileName,
@@ -758,7 +758,7 @@ export const submitVendorClinicLicense = (
   vendorId: string,
   payload: {
     fileName: string;
-    fileDataUrl?: string;
+    storagePath?: string;
     fileMimeType?: string;
     expiryDate: string;
     submittedBy: "vendor" | "admin";
@@ -769,7 +769,7 @@ export const submitVendorClinicLicense = (
     docType: PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE,
     providerUserId: null,
     fileName: payload.fileName,
-    fileDataUrl: payload.fileDataUrl,
+    storagePath: payload.storagePath,
     fileMimeType: payload.fileMimeType,
     expiryDate: payload.expiryDate,
     submittedBy: payload.submittedBy,
@@ -780,7 +780,7 @@ export const submitVendorDocument = (
   vendorId: string,
   payload: {
     fileName: string;
-    fileDataUrl?: string;
+    storagePath?: string;
     fileMimeType?: string;
     docType: ProviderCredentialDocType;
     expiryDate?: string;
@@ -792,7 +792,7 @@ export const submitVendorDocument = (
     docType: payload.docType,
     providerUserId: null,
     fileName: payload.fileName,
-    fileDataUrl: payload.fileDataUrl,
+    storagePath: payload.storagePath,
     fileMimeType: payload.fileMimeType,
     expiryDate: payload.expiryDate || undefined,
     submittedBy: payload.submittedBy,
@@ -804,7 +804,7 @@ export const submitVendorDoctorApc = (
   payload: {
     providerUserId: string;
     fileName: string;
-    fileDataUrl?: string;
+    storagePath?: string;
     fileMimeType?: string;
     expiryDate: string;
     submittedBy: "vendor" | "admin";
@@ -815,7 +815,7 @@ export const submitVendorDoctorApc = (
     docType: PROVIDER_CREDENTIAL_DOC_TYPES.APC,
     providerUserId: payload.providerUserId,
     fileName: payload.fileName,
-    fileDataUrl: payload.fileDataUrl,
+    storagePath: payload.storagePath,
     fileMimeType: payload.fileMimeType,
     expiryDate: payload.expiryDate,
     submittedBy: payload.submittedBy,

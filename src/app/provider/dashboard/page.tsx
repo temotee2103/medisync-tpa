@@ -308,7 +308,6 @@ export default function ProviderDashboardPage() {
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Action Required</p>
                 <p className="mt-2 text-2xl font-bold text-slate-900">{analytics.actionRequiredClaims}</p>
                 <p className="mt-1 text-sm text-slate-600">
-                  {analytics.actionRequiredThisMonth} updated this month
                 </p>
               </div>
             </div>

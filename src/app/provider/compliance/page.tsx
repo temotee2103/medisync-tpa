@@ -72,7 +72,10 @@ const downloadComplianceDocument = async (
   }
 
   const resolvedPath = storagePath || (credentialId ? await fetchCredentialStoragePath(credentialId) : null);
-  if (!resolvedPath) return;
+  if (!resolvedPath) {
+    showToast("Document not available for download.", "error");
+    return;
+  }
 
   if (resolvedPath.startsWith("http://") || resolvedPath.startsWith("https://")) {
     window.open(resolvedPath, "_blank");
@@ -101,7 +104,7 @@ const downloadComplianceDocument = async (
     anchor.click();
     URL.revokeObjectURL(url);
   } catch {
-    // silently fail
+    showToast("Unable to open document.", "error");
   }
 };
 

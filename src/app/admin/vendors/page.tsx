@@ -184,7 +184,10 @@ const previewComplianceDocument = async (
   }
 
   const resolvedPath = storagePath || (credentialId ? await providerSession.fetchCredentialStoragePath(credentialId) : null);
-  if (!resolvedPath) return;
+  if (!resolvedPath) {
+    showToast("Document not available for preview.", "error");
+    return;
+  }
 
   // Data URL from storage
   if (resolvedPath.startsWith("data:")) {
@@ -210,7 +213,7 @@ const previewComplianceDocument = async (
     // Keep blob alive for the new tab to load, then revoke
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch {
-    // Silent — user can fall back to Download button
+    showToast("Unable to preview document.", "error");
   }
 };
 

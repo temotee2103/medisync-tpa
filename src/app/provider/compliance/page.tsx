@@ -299,7 +299,7 @@ export default function CompliancePage() {
       setDocUploadField(docType, "fileMimeType", "");
       setDocUploadField(docType, "expiryDate", "");
       setDocUploadField(docType, "error", "✓ Submitted successfully — pending admin review.");
-    } catch { setDocUploadField(docType, "error", "Upload failed. Please try again."); }
+    } catch (err) { setDocUploadField(docType, "error", err instanceof Error ? err.message : "Upload failed. Please refresh the page and try again."); }
   };
 
   if (isResolvingProvider) {

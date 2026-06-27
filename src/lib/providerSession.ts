@@ -683,7 +683,31 @@ export const insertProviderCredential = async (payload: {
   submittedBy: "vendor" | "admin";
 }) => {
   const providerUuid = resolveProviderUuid(payload.vendorId);
-  if (!providerUuid) return;
+  if (!providerUuid) {
+    // Vendor-to-UUID map may not be loaded yet — try to ensure it
+    await ensureProviderDirectoryStore();
+    const retryUuid = resolveProviderUuid(payload.vendorId);
+    if (!retryUuid) {
+      throw new Error(`Cannot resolve provider for vendorId: ${payload.vendorId}. The vendor may not exist in the system. Please refresh the page and try again.`);
+    }
+    // Use the retry UUID
+    const providerUserUuid = payload.providerUserId ? resolveProviderUserUuid(payload.vendorId, payload.providerUserId) : "";
+    const supabase = createSupabaseBrowserClient();
+    const row: Record<string, unknown> = {
+      provider_id: retryUuid,
+      provider_user_id: providerUserUuid || null,
+      doc_type: payload.docType,
+      storage_path: payload.fileDataUrl || null,
+      expiry_date: payload.expiryDate || null,
+      status: "submitted",
+      file_name: payload.fileName,
+      mime_type: payload.fileMimeType || null,
+      submitted_by: payload.submittedBy,
+    };
+    await supabase.from("provider_credentials").insert(row);
+    await refreshProviderCredentialsSnapshot();
+    return;
+  }
   const providerUserUuid = payload.providerUserId ? resolveProviderUserUuid(payload.vendorId, payload.providerUserId) : "";
   const supabase = createSupabaseBrowserClient();
   const row: Record<string, unknown> = {

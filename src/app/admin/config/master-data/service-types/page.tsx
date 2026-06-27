@@ -87,7 +87,6 @@ export default function ServiceTypeRulesPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Service Type Rules</h1>
-            <p className="text-sm text-slate-500">Enable or disable claim breakdown sections per service type.</p>
           </div>
         </div>
         <GlassButton className="gap-2" onClick={save} disabled={isServiceTypeReadOnly}>

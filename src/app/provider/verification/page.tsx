@@ -103,7 +103,6 @@ export default function MemberVerificationPage() {
     <div className="max-w-5xl mx-auto space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Member Verification</h1>
-        <p className="text-sm text-slate-500">Verify member eligibility and coverage details.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

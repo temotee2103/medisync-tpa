@@ -329,7 +329,6 @@ export default function AdminDashboard() {
       <div>
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Management Dashboard</h1>
-          <p className="text-sm text-slate-500">A cleaner operational overview across claims, members, companies, and providers.</p>
         </div>
       </div>
 

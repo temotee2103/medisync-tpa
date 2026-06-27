@@ -26,7 +26,6 @@ export default function CustomerMembersPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Employee Management</h1>
-          <p className="text-sm text-slate-500">Manage your company&apos;s insured members.</p>
         </div>
         <GlassButton className="gap-2 bg-sky-600 hover:bg-sky-700 text-white border-sky-500">
           <Plus className="w-4 h-4" />

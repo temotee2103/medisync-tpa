@@ -456,7 +456,6 @@ export default function CatalogPanel({ catalogType }: Props) {
           <GlassCard className="w-full max-w-xl p-0 overflow-hidden border border-slate-200 bg-white/95 relative max-h-[calc(100vh-2rem)] flex flex-col">
             <div className="px-6 py-4 border-b border-slate-200/70 bg-slate-50/70">
               <h3 className="text-lg font-bold text-slate-800">Add Item</h3>
-              <p className="text-sm text-slate-500">Create a new catalog item.</p>
             </div>
             <div className="p-6 space-y-4 overflow-y-auto">
               <fieldset disabled={isCatalogReadOnly} className="space-y-4">

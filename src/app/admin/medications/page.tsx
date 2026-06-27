@@ -11,7 +11,6 @@ export default function AdminMedicationsPage() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Catalog Management</h1>
-        <p className="text-sm text-slate-500">Manage dropdown items used across claims and provider entry.</p>
       </div>
       <CatalogTabs value={tab} onChange={setTab} />
       <CatalogPanel catalogType={tab} />

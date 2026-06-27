@@ -266,7 +266,6 @@ export default function PolicySearchPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold text-slate-800">Policy Management</h1>
-          <p className="text-sm text-slate-500">Search and verify member eligibility.</p>
         </div>
         <GlassButton className="gap-2" onClick={() => setIsAddPolicyModalOpen(true)}>
           <Plus className="w-4 h-4" />

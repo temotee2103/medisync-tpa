@@ -136,7 +136,6 @@ export default function CustomerDashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Hello, {memberName}</h1>
-          <p className="text-sm text-slate-500">Welcome to your health dashboard.</p>
         </div>
         <Link href="/member/claims">
           <GlassButton className="gap-2">

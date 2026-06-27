@@ -73,7 +73,6 @@ export default function ProviderPayoutProfilePage() {
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Payout Details</h1>
-        <p className="text-sm text-slate-500">Add bank details so settlements can be completed.</p>
       </div>
 
       <GlassCard className="p-6 space-y-4">

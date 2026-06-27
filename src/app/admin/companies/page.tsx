@@ -1007,7 +1007,6 @@ export default function AdminCompanyManagementPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Corporate Management</h1>
-          <p className="text-sm text-slate-500">Create companies and manage their member rosters.</p>
         </div>
         <GlassButton
           className="gap-2"

@@ -100,7 +100,6 @@ export default function CustomerDashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Company Overview</h1>
-          <p className="text-sm text-slate-500">Welcome back, Tech Corp HR Admin.</p>
         </div>
         <GlassButton className="gap-2">
           <Download className="w-4 h-4" />

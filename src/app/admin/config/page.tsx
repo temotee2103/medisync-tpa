@@ -138,7 +138,6 @@ export default function SystemConfigPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">System Configuration</h1>
-        <p className="text-sm text-slate-500">Manage master data and global system settings.</p>
       </div>
 
       {isConfigAccessPending && (
@@ -321,7 +320,6 @@ export default function SystemConfigPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-bold text-slate-800">System Audit Log</h3>
-                <p className="text-sm text-slate-500">Recent administrative actions and events.</p>
               </div>
               <GlassButton
                 variant="secondary"

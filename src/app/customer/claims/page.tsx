@@ -58,7 +58,6 @@ export default function CustomerClaimsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Claims Overview</h1>
-          <p className="text-sm text-slate-500">Track and analyze employee claims.</p>
         </div>
         <GlassButton className="gap-2">
           <Download className="w-4 h-4" />

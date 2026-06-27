@@ -318,7 +318,6 @@ export default function MemberHistoryPage() {
       <div className="space-y-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Claim History</h1>
-          <p className="text-sm text-slate-500">View and track all your medical claims.</p>
         </div>
         <GlassCard className="p-6">
           <p className="text-sm text-rose-600">{historyError}</p>
@@ -333,7 +332,6 @@ export default function MemberHistoryPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Claim History</h1>
-          <p className="text-sm text-slate-500">View and track all your medical claims.</p>
         </div>
       </div>
 

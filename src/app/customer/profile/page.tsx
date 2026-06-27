@@ -10,7 +10,6 @@ export default function CustomerProfilePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Company Profile</h1>
-          <p className="text-sm text-slate-500">Manage company details and billing information.</p>
         </div>
         <GlassButton className="gap-2 bg-sky-600 hover:bg-sky-700 text-white border-sky-500">
           <Save className="w-4 h-4" />

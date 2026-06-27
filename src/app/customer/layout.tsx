@@ -57,7 +57,7 @@ export default function CustomerLayout({
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      <aside className="hidden md:flex w-64 flex-col fixed inset-y-0 left-0 bg-white/40 backdrop-blur-xl border-r border-white/50 z-50">
+      <aside className="hidden md:flex w-72 flex-col fixed inset-y-0 left-0 bg-white/40 backdrop-blur-xl border-r border-white/50 z-50">
         <div className="h-16 flex items-center px-6 border-b border-white/30">
           <div className="relative w-48 h-12">
             <Image src={withBasePath("/logo-2.png")} alt="Logo" fill className="object-contain" />
@@ -142,7 +142,7 @@ export default function CustomerLayout({
         </div>
       )}
 
-      <main className="flex-1 md:pl-64 p-4 md:p-8 pt-20 md:pt-8">
+      <main className="flex-1 md:pl-72 p-4 md:p-8 pt-20 md:pt-8">
         {children}
       </main>
     </div>

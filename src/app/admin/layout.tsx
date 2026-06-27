@@ -100,7 +100,7 @@ export default function AdminLayout({
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      <aside className="hidden md:flex w-64 flex-col sticky top-0 h-screen bg-white/40 backdrop-blur-xl border-r border-white/50 z-50">
+      <aside className="hidden md:flex w-72 flex-col sticky top-0 h-screen bg-white/40 backdrop-blur-xl border-r border-white/50 z-50">
         <div className="h-16 flex items-center px-6 border-b border-white/30">
           <div className="relative w-48 h-12">
             <Image

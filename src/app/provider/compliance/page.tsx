@@ -269,6 +269,13 @@ export default function CompliancePage() {
 
 
   const apcList = visibleApcList;
+  const apcHeaderStatus = isCompliant
+    ? "approved"
+    : apcList.some((d) => d.status === "submitted")
+      ? "submitted"
+      : apcList.some((d) => d.status === "rejected")
+        ? "rejected"
+        : "missing";
   const selectedApcDoctorId =
     currentUserRole === "doctor"
       ? visibleDoctors[0]?.providerUserUuid || visibleDoctors[0]?.memberId || ""
@@ -518,9 +525,9 @@ export default function CompliancePage() {
               <StethoscopeIcon className="w-5 h-5 text-purple-500" />
               Annual Practicing Cert (APC) List
             </h3>
-            <span className={`inline-flex w-fit whitespace-nowrap px-3 py-1 text-xs font-bold rounded-full flex items-center gap-1 ${statusPill(isCompliant ? "approved" : "submitted")}`}>
-              {isCompliant ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-              {(isCompliant ? "APPROVED" : "SUBMITTED")}
+            <span className={`inline-flex w-fit whitespace-nowrap px-3 py-1 text-xs font-bold rounded-full flex items-center gap-1 ${statusPill(apcHeaderStatus)}`}>
+              {apcHeaderStatus === "approved" ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+              {apcHeaderStatus.toUpperCase()}
             </span>
           </div>
 

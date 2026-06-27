@@ -301,7 +301,7 @@ export default function ProviderDashboardPage() {
                           analytics.latestSubmission.createdAt ||
                           analytics.latestSubmission.treatmentDate
                       )}`
-                    : "No provider submissions yet"}
+                    : ""}
                 </p>
               </div>
               <div className="rounded-2xl border border-sky-100 bg-white/70 p-4">
@@ -356,17 +356,14 @@ export default function ProviderDashboardPage() {
               <div className="rounded-2xl border border-sky-100 bg-sky-50/65 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Submitted Value</p>
                 <p className="mt-2 text-xl font-bold text-slate-900">{formatCurrency(analytics.totalSubmittedValue)}</p>
-                <p className="mt-1 text-sm text-slate-600">{analytics.totalClaims} total claims recorded</p>
               </div>
               <div className="rounded-2xl border border-amber-100 bg-amber-50/75 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Awaiting Outcome</p>
                 <p className="mt-2 text-xl font-bold text-slate-900">{analytics.submittedClaims + analytics.actionRequiredClaims}</p>
-                <p className="mt-1 text-sm text-slate-600">{formatCurrency(analytics.pendingValue)} pending review</p>
               </div>
               <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Rejected Value</p>
                 <p className="mt-2 text-xl font-bold text-slate-900">{formatCurrency(analytics.rejectedValue)}</p>
-                <p className="mt-1 text-sm text-slate-600">{analytics.rejectedClaims} claims need follow-up</p>
               </div>
             </div>
 
@@ -601,7 +598,7 @@ export default function ProviderDashboardPage() {
             <p className="mt-2 text-sm leading-relaxed text-emerald-800">
               {analytics.latestActionRequired
                 ? `${analytics.latestActionRequired.claimNumber} currently needs more information before it can proceed.`
-                : "No provider submissions currently require additional information."}
+                : ""}
             </p>
             <div className="mt-4 rounded-2xl border border-emerald-100 bg-white/70 p-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Action Required Count</p>

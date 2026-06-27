@@ -357,7 +357,7 @@ export default function AdminDashboard() {
                 <div className="rounded-2xl border border-white/70 bg-white/60 p-4 shadow-sm">
                   <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">Latest Claim</p>
                   <p className="mt-2 text-lg font-bold text-slate-900">
-                    {isDashboardLoading ? "Loading..." : analytics.latestClaim?.id || "No activity"}
+                    {isDashboardLoading ? "Loading..." : analytics.latestClaim?.id || "—"}
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
                     {isDashboardLoading
@@ -448,7 +448,7 @@ export default function AdminDashboard() {
             )}
             {!isDashboardLoading && analytics.recentClaims.length === 0 && (
               <GlassCard className="p-5">
-                <p className="text-sm text-slate-500">No claims recorded yet.</p>
+                <p className="text-sm text-slate-500"></p>
               </GlassCard>
             )}
             {!isDashboardLoading && analytics.recentClaims.map((claim) => (

@@ -152,20 +152,17 @@ const downloadComplianceDocument = async (
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const parts = resolvedPath.split("/");
-      if (parts.length >= 2) {
-        const bucket = parts[0];
-        const path = parts.slice(1).join("/");
-        const { data, error } = await supabase.storage.from(bucket).download(path);
-        if (error) throw error;
-        const url = URL.createObjectURL(data);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = fileName;
-        anchor.click();
-        URL.revokeObjectURL(url);
-        return;
-      }
+      const { data, error } = await supabase.storage
+        .from("provider-claim-documents")
+        .download(resolvedPath);
+      if (error) throw error;
+      const url = URL.createObjectURL(data);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      return;
     } catch {
       // fall through to downloadText
     }
@@ -204,17 +201,14 @@ const previewComplianceDocument = async (
   // Supabase Storage path → fetch blob → open in new tab
   try {
     const supabase = createSupabaseBrowserClient();
-    const parts = resolvedPath.split("/");
-    if (parts.length >= 2) {
-      const bucket = parts[0];
-      const path = parts.slice(1).join("/");
-      const { data, error } = await supabase.storage.from(bucket).download(path);
-      if (error) throw error;
-      const url = URL.createObjectURL(data);
-      window.open(url, "_blank");
-      // Keep blob alive for the new tab to load, then revoke
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    }
+    const { data, error } = await supabase.storage
+      .from("provider-claim-documents")
+      .download(resolvedPath);
+    if (error) throw error;
+    const url = URL.createObjectURL(data);
+    window.open(url, "_blank");
+    // Keep blob alive for the new tab to load, then revoke
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch {
     // Silent — user can fall back to Download button
   }

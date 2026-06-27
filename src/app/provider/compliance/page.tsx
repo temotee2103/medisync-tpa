@@ -90,19 +90,16 @@ const downloadComplianceDocument = async (
 
   try {
     const supabase = createSupabaseBrowserClient();
-    const parts = resolvedPath.split("/");
-    if (parts.length >= 2) {
-      const bucket = parts[0];
-      const path = parts.slice(1).join("/");
-      const { data, error } = await supabase.storage.from(bucket).download(path);
-      if (error) throw error;
-      const url = URL.createObjectURL(data);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = fileName;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    }
+    const { data, error } = await supabase.storage
+      .from("provider-claim-documents")
+      .download(resolvedPath);
+    if (error) throw error;
+    const url = URL.createObjectURL(data);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
   } catch {
     // silently fail
   }

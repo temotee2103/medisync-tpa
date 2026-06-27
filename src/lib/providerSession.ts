@@ -368,7 +368,7 @@ export const refreshProviderCredentialsSnapshot = async () => {
     const { data, error } = await supabase
       .from("provider_credentials")
       .select(
-        "id, provider_id, provider_user_id, doc_type, storage_path, expiry_date, status, file_name, mime_type, created_at, updated_at, reviewed_at"
+        "id, provider_id, provider_user_id, doc_type, expiry_date, status, file_name, mime_type, created_at, updated_at, reviewed_at"
       )
       .order("created_at", { ascending: false });
     if (error) throw error;
@@ -378,7 +378,7 @@ export const refreshProviderCredentialsSnapshot = async () => {
       provider_id: row.provider_id ? String(row.provider_id) : null,
       provider_user_id: row.provider_user_id ? String(row.provider_user_id) : null,
       doc_type: row.doc_type ? String(row.doc_type) : null,
-      storage_path: row.storage_path ? String(row.storage_path) : null,
+      storage_path: null,
       expiry_date: row.expiry_date ? String(row.expiry_date) : null,
       status: row.status ? String(row.status) : null,
       file_name: row.file_name ? String(row.file_name) : null,
@@ -391,6 +391,23 @@ export const refreshProviderCredentialsSnapshot = async () => {
     providerCredentialsSnapshot = [];
   } finally {
     notify(providerCredentialsListeners);
+  }
+};
+
+/** Fetch storage_path for a single credential (lazy, avoids bulk base64 in snapshot). */
+export const fetchCredentialStoragePath = async (credentialId: string): Promise<string | null> => {
+  if (typeof window === "undefined") return null;
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const { data, error } = await supabase
+      .from("provider_credentials")
+      .select("storage_path")
+      .eq("id", credentialId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return (data as { storage_path: string | null }).storage_path || null;
+  } catch {
+    return null;
   }
 };
 

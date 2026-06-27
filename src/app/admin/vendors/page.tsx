@@ -123,7 +123,8 @@ const downloadComplianceDocument = async (
   fileName: string,
   fileDataUrl?: string,
   storagePath?: string,
-  fallbackContent?: string
+  fallbackContent?: string,
+  credentialId?: string,
 ) => {
   if (fileDataUrl) {
     const anchor = document.createElement("a");
@@ -133,15 +134,23 @@ const downloadComplianceDocument = async (
     return;
   }
 
-  if (storagePath) {
-    if (storagePath.startsWith("http://") || storagePath.startsWith("https://")) {
-      window.open(storagePath, "_blank");
+  const resolvedPath = storagePath || (credentialId ? await providerSession.fetchCredentialStoragePath(credentialId) : null);
+  if (resolvedPath) {
+    if (resolvedPath.startsWith("data:")) {
+      const anchor = document.createElement("a");
+      anchor.href = resolvedPath;
+      anchor.download = fileName;
+      anchor.click();
+      return;
+    }
+    if (resolvedPath.startsWith("http://") || resolvedPath.startsWith("https://")) {
+      window.open(resolvedPath, "_blank");
       return;
     }
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const parts = storagePath.split("/");
+      const parts = resolvedPath.split("/");
       if (parts.length >= 2) {
         const bucket = parts[0];
         const path = parts.slice(1).join("/");
@@ -1336,7 +1345,8 @@ export default function VendorManagementPage() {
                                   doc.fileName || `${label}.pdf`,
                                   doc.fileDataUrl,
                                   doc.storagePath,
-                                  `Vendor: ${complianceVendor.providerName}\nDocument: ${label}\nExpiry: ${doc?.expiryDate || "-"}`
+                                  `Vendor: ${complianceVendor.providerName}\nDocument: ${label}\nExpiry: ${doc?.expiryDate || "-"}`,
+                                  doc.credentialId,
                                 );
                               }}
                             >
@@ -1534,7 +1544,8 @@ export default function VendorManagementPage() {
                                       selectedDoctorApcDoc.fileName || "doctor-apc.pdf",
                                       selectedDoctorApcDoc.fileDataUrl,
                                       selectedDoctorApcDoc.storagePath,
-                                      `Vendor: ${complianceVendor.providerName}\nDoctor: ${selectedDoctor.fullName || selectedDoctor.memberId}\nExpiry: ${selectedDoctorApcDoc.expiryDate || "-"}`
+                                      `Vendor: ${complianceVendor.providerName}\nDoctor: ${selectedDoctor.fullName || selectedDoctor.memberId}\nExpiry: ${selectedDoctorApcDoc.expiryDate || "-"}`,
+                                      selectedDoctorApcDoc.credentialId,
                                     );
                                   }}
                                 >
@@ -1737,7 +1748,8 @@ export default function VendorManagementPage() {
                                     doc?.storagePath,
                                     `Vendor: ${complianceVendor.providerName}\nType: ${
                                       item.kind === "clinic_license" ? "Clinic License" : "Doctor APC"
-                                    }\nName: ${item.name}\nSubmitted: ${item.submittedAt || "-"}\nExpiry: ${doc?.expiryDate || "-"}`
+                                    }\nName: ${item.name}\nSubmitted: ${item.submittedAt || "-"}\nExpiry: ${doc?.expiryDate || "-"}`,
+                                    doc?.credentialId,
                                   );
                                 }}
                               >

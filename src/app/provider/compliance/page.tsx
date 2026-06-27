@@ -28,6 +28,7 @@ import {
   normalizeProviderUserRole,
   isProviderCompliant,
   insertProviderCredential,
+  fetchCredentialStoragePath,
   PROVIDER_CREDENTIAL_DOC_TYPES,
   submitVendorDoctorApc,
   subscribeProviderCredentials,
@@ -58,7 +59,8 @@ const formatProviderRole = (role?: string | null) => {
 const downloadComplianceDocument = async (
   fileName: string,
   fileDataUrl?: string,
-  storagePath?: string
+  storagePath?: string,
+  credentialId?: string,
 ) => {
   if (fileDataUrl) {
     const anchor = document.createElement("a");
@@ -68,30 +70,40 @@ const downloadComplianceDocument = async (
     return;
   }
 
-  if (storagePath) {
-    if (storagePath.startsWith("http://") || storagePath.startsWith("https://")) {
-      window.open(storagePath, "_blank");
-      return;
-    }
+  const resolvedPath = storagePath || (credentialId ? await fetchCredentialStoragePath(credentialId) : null);
+  if (!resolvedPath) return;
 
-    try {
-      const supabase = createSupabaseBrowserClient();
-      const parts = storagePath.split("/");
-      if (parts.length >= 2) {
-        const bucket = parts[0];
-        const path = parts.slice(1).join("/");
-        const { data, error } = await supabase.storage.from(bucket).download(path);
-        if (error) throw error;
-        const url = URL.createObjectURL(data);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = fileName;
-        anchor.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch {
-      // silently fail
+  if (resolvedPath.startsWith("http://") || resolvedPath.startsWith("https://")) {
+    window.open(resolvedPath, "_blank");
+    return;
+  }
+
+  // data: URL from lazy fetch
+  if (resolvedPath.startsWith("data:")) {
+    const anchor = document.createElement("a");
+    anchor.href = resolvedPath;
+    anchor.download = fileName;
+    anchor.click();
+    return;
+  }
+
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const parts = resolvedPath.split("/");
+    if (parts.length >= 2) {
+      const bucket = parts[0];
+      const path = parts.slice(1).join("/");
+      const { data, error } = await supabase.storage.from(bucket).download(path);
+      if (error) throw error;
+      const url = URL.createObjectURL(data);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
     }
+  } catch {
+    // silently fail
   }
 };
 
@@ -407,7 +419,7 @@ export default function CompliancePage() {
                     disabled={!currentDoc?.fileName}
                     onClick={() => {
                       if (!currentDoc?.fileName) return;
-                      downloadComplianceDocument(currentDoc.fileName, currentDoc.fileDataUrl, currentDoc.storagePath);
+                      downloadComplianceDocument(currentDoc.fileName, currentDoc.fileDataUrl, currentDoc.storagePath, currentDoc.credentialId);
                     }}
                   >
                     Open
@@ -526,7 +538,7 @@ export default function CompliancePage() {
                       disabled={!doc.fileName}
                       onClick={() => {
                         if (!doc.fileName) return;
-                        downloadComplianceDocument(doc.fileName, doc.fileDataUrl, doc.storagePath);
+                        downloadComplianceDocument(doc.fileName, doc.fileDataUrl, doc.storagePath, doc.credentialId);
                       }}
                     >
                       Open

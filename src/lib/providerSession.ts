@@ -799,7 +799,7 @@ export const submitVendorDocument = (
   });
 };
 
-export const submitVendorDoctorApc = (
+export const submitVendorDoctorApc = async (
   vendorId: string,
   payload: {
     providerUserId: string;
@@ -810,7 +810,7 @@ export const submitVendorDoctorApc = (
     submittedBy: "vendor" | "admin";
   }
 ) => {
-  void insertProviderCredential({
+  await insertProviderCredential({
     vendorId,
     docType: PROVIDER_CREDENTIAL_DOC_TYPES.APC,
     providerUserId: payload.providerUserId,

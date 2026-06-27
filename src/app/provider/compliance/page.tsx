@@ -636,12 +636,14 @@ export default function CompliancePage() {
             </label>
             <div className="mt-3">
               <GlassButton
-                disabled={!canUploadApc}
+                disabled={!canUploadApc || submittingDoc !== null}
+                isLoading={submittingDoc === "apc"}
                 onClick={async () => {
                   if (!session?.vendorId || !selectedApcDoctorId || !apcUpload.fileName || !apcUpload.expiryDate) {
                     showToast("Please select a doctor, file, and expiry date.", "warning");
                     return;
                   }
+                  setSubmittingDoc("apc");
                   try {
                     let storagePath: string | undefined;
                     if (apcUpload.file) {
@@ -663,13 +665,15 @@ export default function CompliancePage() {
                       fileMimeType: "",
                       expiryDate: "",
                     });
-                    showToast("APC submitted for review.", "success");
-                  } catch {
-                    showToast("APC upload failed.", "error");
+                    showToast("Submitted for review.", "success");
+                  } catch (err) {
+                    showToast(err instanceof Error ? err.message : "Upload failed.", "error");
+                  } finally {
+                    setSubmittingDoc(null);
                   }
                 }}
               >
-                Send APC
+                Send Review
               </GlassButton>
             </div>
             {currentUserRole === "doctor" ? (

@@ -271,11 +271,13 @@ export default function CompliancePage() {
   const apcList = visibleApcList;
   const apcHeaderStatus = isCompliant
     ? "approved"
-    : apcList.some((d) => d.status === "submitted")
+    : apcList.some((d) => getApcDisplayStatus(d) === "submitted")
       ? "submitted"
-      : apcList.some((d) => d.status === "rejected")
-        ? "rejected"
-        : "missing";
+      : apcList.some((d) => getApcDisplayStatus(d) === "expired")
+        ? "expired"
+        : apcList.some((d) => getApcDisplayStatus(d) === "rejected")
+          ? "rejected"
+          : "missing";
   const selectedApcDoctorId =
     currentUserRole === "doctor"
       ? visibleDoctors[0]?.providerUserUuid || visibleDoctors[0]?.memberId || ""
@@ -285,7 +287,17 @@ export default function CompliancePage() {
     if (status === "approved") return "bg-emerald-100 text-emerald-700";
     if (status === "submitted") return "bg-amber-100 text-amber-700";
     if (status === "rejected") return "bg-rose-100 text-rose-700";
+    if (status === "expired") return "bg-orange-100 text-orange-700";
     return "bg-slate-100 text-slate-600";
+  };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const getApcDisplayStatus = (doc: { status?: string; expiryDate?: string; fileName?: string }) => {
+    if (!doc || !doc.fileName) return "missing";
+    if (doc.status === "rejected") return "rejected";
+    if (doc.status === "submitted") return "submitted";
+    if (doc.status === "approved" && doc.expiryDate && doc.expiryDate < today) return "expired";
+    return doc.status || "missing";
   };
 
   const DOC_TYPE_CONFIGS = [
@@ -545,8 +557,8 @@ export default function CompliancePage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 text-[10px] font-bold rounded-full ${statusPill(doc.status)}`}>
-                      {(doc.status || "missing").toUpperCase()}
+                    <span className={`px-2 py-1 text-[10px] font-bold rounded-full ${statusPill(getApcDisplayStatus(doc))}`}>
+                      {getApcDisplayStatus(doc).toUpperCase()}
                     </span>
                     <GlassButton
                       size="sm"

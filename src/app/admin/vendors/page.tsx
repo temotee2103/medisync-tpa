@@ -500,9 +500,7 @@ export default function VendorManagementPage() {
       return items;
     });
   }, [vendors]);
-  const pendingVendorSubmissions = useMemo(() => {
-    return providerSession.getVendorPendingComplianceItems(complianceVendorId);
-  }, [complianceVendorId]);
+  const pendingVendorSubmissions = providerSession.getVendorPendingComplianceItems(complianceVendorId);
 
   const reviewCredentialDecision = async (credentialId: string, status: "approved" | "rejected") => {
     if (disableVendorEditing) return;

@@ -19,7 +19,8 @@ import {
   Power,
   Pencil,
   UserPlus,
-  Trash2
+  Trash2,
+  Eye
 } from "lucide-react";
 import { GlassSelect } from "@/components/ui/GlassSelect";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -171,6 +172,52 @@ const downloadComplianceDocument = async (
   }
 
   downloadText(fileName, fallbackContent || "Document preview unavailable.");
+};
+
+const previewComplianceDocument = async (
+  fileName: string,
+  fileDataUrl?: string,
+  storagePath?: string,
+  credentialId?: string,
+) => {
+  // Data URL — open directly in new tab
+  if (fileDataUrl) {
+    window.open(fileDataUrl, "_blank");
+    return;
+  }
+
+  const resolvedPath = storagePath || (credentialId ? await providerSession.fetchCredentialStoragePath(credentialId) : null);
+  if (!resolvedPath) return;
+
+  // Data URL from storage
+  if (resolvedPath.startsWith("data:")) {
+    window.open(resolvedPath, "_blank");
+    return;
+  }
+
+  // HTTP(S) URL
+  if (resolvedPath.startsWith("http://") || resolvedPath.startsWith("https://")) {
+    window.open(resolvedPath, "_blank");
+    return;
+  }
+
+  // Supabase Storage path → fetch blob → open in new tab
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const parts = resolvedPath.split("/");
+    if (parts.length >= 2) {
+      const bucket = parts[0];
+      const path = parts.slice(1).join("/");
+      const { data, error } = await supabase.storage.from(bucket).download(path);
+      if (error) throw error;
+      const url = URL.createObjectURL(data);
+      window.open(url, "_blank");
+      // Keep blob alive for the new tab to load, then revoke
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  } catch {
+    // Silent — user can fall back to Download button
+  }
 };
 
 const getComplianceState = (vendor?: providerSession.ProviderDirectoryEntry | null) => {
@@ -1768,6 +1815,26 @@ export default function VendorManagementPage() {
                                 }}
                               >
                                 Download
+                              </GlassButton>
+                              <GlassButton
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                  const doc =
+                                    item.kind === "clinic_license"
+                                      ? clinicDoc
+                                      : apcDocs.find((row) => row.credentialId === item.credentialId) ||
+                                        apcDocs.find((row) => row.providerUserId === item.providerUserId);
+                                  const fileName = doc?.fileName || item.name || "compliance-document";
+                                  previewComplianceDocument(
+                                    fileName,
+                                    doc?.fileDataUrl,
+                                    doc?.storagePath,
+                                    doc?.credentialId,
+                                  );
+                                }}
+                              >
+                                Preview
                               </GlassButton>
                               <GlassButton
                                 size="sm"

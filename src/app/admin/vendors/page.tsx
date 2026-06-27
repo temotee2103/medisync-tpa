@@ -60,6 +60,7 @@ const {
   getProviderCredentialsServerSnapshot,
   getVendorMembersByVendor,
   submitVendorClinicLicense,
+  submitVendorDocument,
   submitVendorDoctorApc,
 } = providerSession;
 
@@ -256,8 +257,8 @@ export default function VendorManagementPage() {
   });
   const [memberFormError, setMemberFormError] = useState("");
   const [vendorActionNotice, setVendorActionNotice] = useState("");
-  const [showClinicUpload, setShowClinicUpload] = useState(false);
-  const [clinicUploadDraft, setClinicUploadDraft] = useState({
+  const [uploadDocType, setUploadDocType] = useState<string | null>(null);
+  const [uploadDraft, setUploadDraft] = useState({
     fileName: "",
     fileDataUrl: "",
     fileMimeType: "",
@@ -526,8 +527,8 @@ export default function VendorManagementPage() {
     setVendorModalView(view);
     setVendorForm(vendor);
     setIsVendorModalOpen(true);
-    setShowClinicUpload(false);
-    setClinicUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
+    setUploadDocType(null);
+    setUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
     setApcUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
   };
 
@@ -535,8 +536,8 @@ export default function VendorManagementPage() {
     setComplianceVendorId("");
     setComplianceStep("clinic");
     setSelectedDoctorProviderUserUuid("");
-    setShowClinicUpload(false);
-    setClinicUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
+    setUploadDocType(null);
+    setUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
     setApcUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
   };
 
@@ -546,8 +547,8 @@ export default function VendorManagementPage() {
     setIsComplianceModalOpen(true);
     setComplianceStep("clinic");
     setSelectedDoctorProviderUserUuid("");
-    setShowClinicUpload(false);
-    setClinicUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
+    setUploadDocType(null);
+    setUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
     setApcUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
   };
 
@@ -1286,12 +1287,12 @@ export default function VendorManagementPage() {
 
               {complianceStep === "clinic" && (
                 <GlassCard className="p-5 space-y-5">
-                  {/* Documents: Borang F (Clinic License), Borang B, SSM, TCM */}
+                  {/* Documents: Borang F, Borang B, SSM, TCM */}
                   <div className="space-y-3">
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Vendor Documents</h4>
                     {[{
                       doc: clinicDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE,
-                      label: "Borang F (Clinic License)", note: "Either One Required — Borang F or Borang B"
+                      label: "Borang F", note: "Either One Required — Borang F or Borang B"
                     }, {
                       doc: borangBDoc, docType: providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B,
                       label: "Borang B", note: "Either One Required — Borang F or Borang B"
@@ -1303,7 +1304,8 @@ export default function VendorManagementPage() {
                       label: "TCM Certificate"
                     }].map(({ doc, docType, label, note }) => {
                       const state = getDocumentState(doc, docType);
-                      const isClinicLicense = docType === providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE;
+                      const isNonExpiry = providerSession.NON_EXPIRY_DOC_TYPES.has(docType);
+                      const isExpanded = uploadDocType === docType;
                       return (
                       <div key={docType} className="rounded-xl border border-slate-200 bg-white/60 p-3 space-y-2">
                         <div className="flex items-center justify-between gap-3">
@@ -1365,18 +1367,16 @@ export default function VendorManagementPage() {
                                 </GlassButton>
                               </>
                             ) : null}
-                            {isClinicLicense && (
-                              <GlassButton
-                                size="xs"
-                                disabled={disableVendorEditing}
-                                onClick={() => setShowClinicUpload((prev) => !prev)}
-                              >
-                                {showClinicUpload ? "Cancel" : getClinicUploadActionLabel(doc)}
-                              </GlassButton>
-                            )}
+                            <GlassButton
+                              size="xs"
+                              disabled={disableVendorEditing}
+                              onClick={() => setUploadDocType(isExpanded ? null : docType)}
+                            >
+                              {isExpanded ? "Cancel" : getClinicUploadActionLabel(doc)}
+                            </GlassButton>
                           </div>
                         </div>
-                        {isClinicLicense && showClinicUpload && (
+                        {isExpanded && (
                           <fieldset disabled={disableVendorEditing} className="pt-2 border-t border-slate-200/60 space-y-2">
                             <label className="glass-input px-3 py-2 cursor-pointer flex items-center justify-between text-sm text-slate-700 rounded-xl border border-slate-200/70 bg-white/80 shadow-sm hover:bg-white">
                               <input
@@ -1386,32 +1386,38 @@ export default function VendorManagementPage() {
                                   const file = e.target.files?.[0];
                                   if (!file) return;
                                   const dataUrl = await readFileAsDataUrl(file);
-                                  setClinicUploadDraft((prev) => ({
+                                  setUploadDraft((prev) => ({
                                     ...prev, fileName: file.name, fileDataUrl: dataUrl, fileMimeType: file.type,
                                   }));
                                 }}
                               />
-                              <span className="font-medium truncate">{clinicUploadDraft.fileName || "Choose file"}</span>
+                              <span className="font-medium truncate">{uploadDraft.fileName || "Choose file"}</span>
                               <span className="text-xs uppercase tracking-wider text-slate-400">Browse</span>
                             </label>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <div className={`grid gap-2 ${isNonExpiry ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2"}`}>
                               <input type="text" className="glass-input px-3 py-2 bg-slate-50 text-slate-500 cursor-not-allowed"
-                                placeholder="clinic-license.pdf" value={clinicUploadDraft.fileName} readOnly />
-                              <input type="date" className="glass-input px-3 py-2"
-                                value={clinicUploadDraft.expiryDate}
-                                onChange={(e) => setClinicUploadDraft((prev) => ({ ...prev, expiryDate: e.target.value }))} />
+                                placeholder={`${docType}.pdf`} value={uploadDraft.fileName} readOnly />
+                              {!isNonExpiry && (
+                                <input type="date" className="glass-input px-3 py-2"
+                                  value={uploadDraft.expiryDate}
+                                  onChange={(e) => setUploadDraft((prev) => ({ ...prev, expiryDate: e.target.value }))} />
+                              )}
                             </div>
                             <GlassButton size="sm" onClick={() => {
                               if (disableVendorEditing) return;
-                              if (!clinicUploadDraft.fileName || !clinicUploadDraft.expiryDate) return;
-                              submitVendorClinicLicense(complianceVendor.vendorId, {
-                                fileName: clinicUploadDraft.fileName, fileDataUrl: clinicUploadDraft.fileDataUrl,
-                                fileMimeType: clinicUploadDraft.fileMimeType, expiryDate: clinicUploadDraft.expiryDate, submittedBy: "admin",
+                              if (!uploadDraft.fileName) return;
+                              if (!isNonExpiry && !uploadDraft.expiryDate) return;
+                              submitVendorDocument(complianceVendor.vendorId, {
+                                fileName: uploadDraft.fileName, fileDataUrl: uploadDraft.fileDataUrl,
+                                fileMimeType: uploadDraft.fileMimeType,
+                                docType,
+                                expiryDate: isNonExpiry ? undefined : uploadDraft.expiryDate,
+                                submittedBy: "admin",
                               });
-                              setShowClinicUpload(false);
-                              setClinicUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
+                              setUploadDocType(null);
+                              setUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
                             }}>
-                              Record Clinic Upload
+                              Record {label} Upload
                             </GlassButton>
                           </fieldset>
                         )}

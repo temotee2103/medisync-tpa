@@ -735,6 +735,29 @@ export const submitVendorClinicLicense = (
   });
 };
 
+export const submitVendorDocument = (
+  vendorId: string,
+  payload: {
+    fileName: string;
+    fileDataUrl?: string;
+    fileMimeType?: string;
+    docType: ProviderCredentialDocType;
+    expiryDate?: string;
+    submittedBy: "vendor" | "admin";
+  }
+) => {
+  void insertProviderCredential({
+    vendorId,
+    docType: payload.docType,
+    providerUserId: null,
+    fileName: payload.fileName,
+    fileDataUrl: payload.fileDataUrl,
+    fileMimeType: payload.fileMimeType,
+    expiryDate: payload.expiryDate || undefined,
+    submittedBy: payload.submittedBy,
+  });
+};
+
 export const submitVendorDoctorApc = (
   vendorId: string,
   payload: {

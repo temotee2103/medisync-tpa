@@ -364,7 +364,7 @@ export default function CompliancePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">License Management & Compliance</h1>
-        <p className="text-slate-500">
+        <p className="text-sm text-slate-500">
           Upload compliance documents for admin review and approval.
           {` Logged in as ${resolvedUserName || currentUser?.fullName || "Provider User"} (${formatProviderRole(currentUserRole)}).`}
         </p>

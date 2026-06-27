@@ -811,7 +811,7 @@ export default function ClaimsListPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Claims Management</h1>
-          <p className="text-slate-500">Manage member reimbursement claims and the unified provider claim lifecycle in one workspace.</p>
+          <p className="text-sm text-slate-500">Manage member reimbursement claims and the unified provider claim lifecycle in one workspace.</p>
         </div>
       </div>
       {adminSession && !canOperateClaimsPage ? (

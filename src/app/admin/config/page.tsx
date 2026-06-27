@@ -138,7 +138,7 @@ export default function SystemConfigPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">System Configuration</h1>
-        <p className="text-slate-500">Manage master data and global system settings.</p>
+        <p className="text-sm text-slate-500">Manage master data and global system settings.</p>
       </div>
 
       {isConfigAccessPending && (

@@ -403,7 +403,7 @@ export default function ReportsPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Reports & Analytics</h1>
-          <p className="text-slate-500">System-wide performance and utilization tracking.</p>
+          <p className="text-sm text-slate-500">System-wide performance and utilization tracking.</p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
           <GlassSelect

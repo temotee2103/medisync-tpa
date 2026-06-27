@@ -41,7 +41,7 @@ export default function MasterDataPage() {
         </Link>
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Master Data</h1>
-          <p className="text-slate-500">Manage global catalogs used by provider claim entry.</p>
+          <p className="text-sm text-slate-500">Manage global catalogs used by provider claim entry.</p>
         </div>
       </div>
 

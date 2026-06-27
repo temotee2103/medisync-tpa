@@ -309,7 +309,7 @@ export default function CatalogPanel({ catalogType }: Props) {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-800">{title}</h2>
-          <p className="text-slate-500">{subtitle}</p>
+          <p className="text-sm text-slate-500">{subtitle}</p>
         </div>
         <div className="flex flex-wrap gap-2 justify-end">
           <GlassButton variant="secondary" className="gap-2" onClick={() => setIsAddOpen(true)} disabled={isCatalogReadOnly}>

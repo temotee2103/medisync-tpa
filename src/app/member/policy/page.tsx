@@ -160,7 +160,7 @@ export default function MemberPolicyPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">My Policy</h1>
-            <p className="text-slate-500">Manage your insurance coverage and dependents.</p>
+            <p className="text-sm text-slate-500">Manage your insurance coverage and dependents.</p>
           </div>
         </div>
 
@@ -177,7 +177,7 @@ export default function MemberPolicyPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">My Policy</h1>
-            <p className="text-slate-500">Manage your insurance coverage and dependents.</p>
+            <p className="text-sm text-slate-500">Manage your insurance coverage and dependents.</p>
           </div>
         </div>
 
@@ -194,7 +194,7 @@ export default function MemberPolicyPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">My Policy</h1>
-          <p className="text-slate-500">Manage your insurance coverage and dependents.</p>
+          <p className="text-sm text-slate-500">Manage your insurance coverage and dependents.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
           <select

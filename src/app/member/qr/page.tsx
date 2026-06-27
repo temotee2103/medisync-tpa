@@ -38,7 +38,7 @@ export default function MemberQrPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Check-in QR</h1>
-        <p className="text-slate-500">Show this to your provider during check-in.</p>
+        <p className="text-sm text-slate-500">Show this to your provider during check-in.</p>
       </div>
 
       <GlassCard className="p-6 space-y-4">

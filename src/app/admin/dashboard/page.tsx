@@ -343,9 +343,6 @@ export default function AdminDashboard() {
               </div>
               <div className="space-y-2">
                 <h2 className="max-w-3xl text-3xl font-bold text-slate-900">Operational overview at a glance</h2>
-                <p className="max-w-2xl text-sm text-slate-600">
-                  Focus on the numbers that matter most for daily admin monitoring.
-                </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl border border-white/70 bg-white/60 p-4 shadow-sm">

@@ -152,7 +152,7 @@ export default function MemberVerificationPage() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 z-10" />
                     <GlassInput
                       placeholder="Enter Staff ID / NRIC / Passport (e.g., MEM-8823-01)"
-                      className="text-lg"
+                      className="text-lg pl-10"
                       value={memberId}
                       onChange={(e) => setMemberId(e.target.value)}
                     />

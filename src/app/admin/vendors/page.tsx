@@ -566,6 +566,7 @@ export default function VendorManagementPage() {
     setUploadDocType(null);
     setUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
     setApcUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
+    void refreshProviderCredentialsSnapshot();
   };
 
   const toggleVendorStatus = (vendor: providerSession.ProviderDirectoryEntry) => {

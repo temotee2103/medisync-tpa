@@ -7,12 +7,11 @@ import { GlassField } from "@/components/ui/GlassField";
 import { GlassInput } from "@/components/ui/GlassInput";
 import { getMemberSession } from "@/lib/memberSession";
 import { getMemberPayoutProfile, upsertMemberPayoutProfile } from "@/lib/payoutProfilesStore";
+import { showToast } from "@/components/ui/Toast";
 
 export default function MemberPayoutProfilePage() {
   const session = getMemberSession();
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [accountHolderName, setAccountHolderName] = useState("");
   const [bankName, setBankName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
@@ -23,7 +22,7 @@ export default function MemberPayoutProfilePage() {
     (async () => {
       try {
         if (!session?.memberId) {
-          if (!cancelled) setError("Session not found.");
+          if (!cancelled) showToast("Session not found.", "error");
           return;
         }
         const existing = await getMemberPayoutProfile(session.memberId);
@@ -34,7 +33,7 @@ export default function MemberPayoutProfilePage() {
           setNote(existing.note || "");
         }
       } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load payout profile.");
+        if (!cancelled) showToast(e instanceof Error ? e.message : "Failed to load payout profile.", "error");
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -45,14 +44,12 @@ export default function MemberPayoutProfilePage() {
   }, [session?.memberId]);
 
   const onSave = async () => {
-    setError("");
-    setSuccess("");
     if (!session?.memberId) {
-      setError("Session not found.");
+      showToast("Session not found.", "error");
       return;
     }
     if (!accountHolderName.trim() || !bankName.trim() || !accountNumber.trim()) {
-      setError("Account holder name, bank name, and account number are required.");
+      showToast("Account holder name, bank name, and account number are required.", "error");
       return;
     }
     try {
@@ -63,9 +60,9 @@ export default function MemberPayoutProfilePage() {
         accountNumber,
         note,
       });
-      setSuccess("Payout details saved.");
+      showToast("Payout details saved.", "success");
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to save payout profile.");
+      showToast(e instanceof Error ? e.message : "Failed to save payout profile.", "error");
     }
   };
 
@@ -78,14 +75,6 @@ export default function MemberPayoutProfilePage() {
 
       <GlassCard className="p-6 space-y-4">
         {isLoading ? <p className="text-sm text-slate-500">Loading...</p> : null}
-        {error ? (
-          <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
-        ) : null}
-        {success ? (
-          <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            {success}
-          </p>
-        ) : null}
 
         <GlassField label="Account Holder Name">
           <GlassInput value={accountHolderName} onChange={(e) => setAccountHolderName(e.target.value)} />

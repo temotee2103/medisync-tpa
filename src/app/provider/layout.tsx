@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { withBasePath } from "@/lib/basePath";
 import { resetSharedClientState } from "@/lib/clientStateReset";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { ToastContainer } from "@/components/ui/Toast";
 import {
   clearProviderSession,
   normalizeProviderUserRole,
@@ -279,6 +280,7 @@ export default function ProviderLayout({
           {children}
         </div>
       </main>
+      <ToastContainer />
     </div>
   );
 }

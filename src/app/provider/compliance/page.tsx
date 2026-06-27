@@ -37,6 +37,7 @@ import {
   type ProviderSession,
 } from "@/lib/providerSession";
 import { getProviderSubmissionGuard } from "@/lib/providerComplianceGuard";
+import { showToast } from "@/components/ui/Toast";
 
 type CurrentProviderUserRow = {
   id?: string | null;
@@ -284,14 +285,14 @@ export default function CompliancePage() {
   };
   const submitDocUpload = async (docType: string) => {
     if (!session?.vendorId) {
-      setDocUploadField(docType, "error", "Session expired or not available. Please refresh the page and log in again.");
+      showToast("Session expired or not available. Please refresh the page and log in again.", "error");
       return;
     }
     const upload = docUploads[docType];
     const config = DOC_TYPE_CONFIGS.find(c => c.key === docType);
     const needsExpiry = !config?.nonExpiry;
     if (!upload?.fileName || (needsExpiry && !upload?.expiryDate)) {
-      setDocUploadField(docType, "error", "Please select a file and enter the expiry date.");
+      showToast("Please select a file" + (needsExpiry ? " and enter the expiry date" : "") + ".", "warning");
       return;
     }
     setDocUploadField(docType, "error", "");
@@ -301,8 +302,8 @@ export default function CompliancePage() {
       setDocUploadField(docType, "fileDataUrl", "");
       setDocUploadField(docType, "fileMimeType", "");
       setDocUploadField(docType, "expiryDate", "");
-      setDocUploadField(docType, "error", "✓ Submitted successfully — pending admin review.");
-    } catch (err) { setDocUploadField(docType, "error", err instanceof Error ? err.message : "Upload failed. Please refresh the page and try again."); }
+      showToast("✓ Submitted successfully — pending admin review.", "success");
+    } catch (err) { showToast(err instanceof Error ? err.message : "Upload failed. Please refresh the page and try again.", "error"); }
   };
 
   if (isResolvingProvider) {

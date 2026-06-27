@@ -5,6 +5,7 @@ import { GlassButton } from "@/components/ui/GlassButton";
 import { GlassInput } from "@/components/ui/GlassInput";
 import { GlassField } from "@/components/ui/GlassField";
 import { MobileDetailModal } from "@/components/ui/MobileDetailModal";
+import { showToast } from "@/components/ui/Toast";
 import { 
   ArrowLeft, 
   Upload, 
@@ -1148,7 +1149,7 @@ export default function ProviderInvoicePage() {
       category: normalizedClaimCategory,
     });
     setError("");
-    alert("Draft saved and member limit locked.");
+    showToast("Draft saved and member limit locked.", "success");
   };
 
   const handleCancelDraft = () => {
@@ -1206,7 +1207,7 @@ export default function ProviderInvoicePage() {
       immunization: {},
     });
     setError("");
-    alert("Draft canceled and member lock released.");
+    showToast("Draft canceled and member lock released.", "info");
   };
 
   const addDiagnosis = () => {

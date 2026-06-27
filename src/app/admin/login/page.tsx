@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
-import { ShieldCheck, Lock, User, AlertCircle } from "lucide-react";
+import { ShieldCheck, Lock, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { withBasePath } from "@/lib/basePath";
 import { fetchAdminSession } from "@/lib/adminSession";
 import { resetSharedClientState } from "@/lib/clientStateReset";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { showToast, ToastContainer } from "@/components/ui/Toast";
 
 type LoginPayload = {
   ok?: boolean;
@@ -24,16 +25,14 @@ type LoginPayload = {
 export default function AdminLoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [formData, setFormData] = useState({ username: "", password: "" });
 
   useEffect(() => {
-    if (error) return;
     const reason = new URLSearchParams(window.location.search).get("reason");
-    if (reason === "unauthenticated") setError("Session expired. Please sign in again.");
-    else if (reason === "access_denied") setError("Access denied. Admin only.");
-    else if (reason === "role_error") setError("Unable to verify access. Please sign in again.");
-  }, [error]);
+    if (reason === "unauthenticated") showToast("Session expired. Please sign in again.", "error");
+    else if (reason === "access_denied") showToast("Access denied. Admin only.", "error");
+    else if (reason === "role_error") showToast("Unable to verify access. Please sign in again.", "error");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,7 +54,6 @@ export default function AdminLoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError("");
     try {
       resetSharedClientState();
       const response = await fetch(withBasePath("/api/auth/admin/login"), {
@@ -86,9 +84,9 @@ export default function AdminLoginPage() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "";
       if (message.includes("Missing environment variable")) {
-        setError("Supabase environment variables are not set. Please configure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+        showToast("Supabase environment variables are not set. Please configure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.", "error");
       } else {
-        setError(message || "Login failed.");
+        showToast(message || "Login failed.", "error");
       }
     } finally {
       setLoading(false);
@@ -116,12 +114,6 @@ export default function AdminLoginPage() {
         </div>
 
         <form onSubmit={handleLogin} className="w-full flex flex-col gap-4">
-          {error && (
-            <div className="bg-red-50 text-red-600 text-xs p-3 rounded-lg flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              {error}
-            </div>
-          )}
           <div className="space-y-1">
             <label className="text-sm font-medium text-slate-700 ml-1">Username</label>
             <div className="relative">
@@ -166,6 +158,7 @@ export default function AdminLoginPage() {
           Restricted access. Internal use only.
         </p>
       </GlassCard>
+      <ToastContainer />
     </div>
   );
 }

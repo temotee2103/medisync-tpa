@@ -32,6 +32,7 @@ import {
   findMemberByPayload,
 } from "@/lib/providerVerification";
 import { QrScanner } from "@/components/ui/QrScanner";
+import { showToast } from "@/components/ui/Toast";
 
 export default function MemberVerificationPage() {
   const [memberId, setMemberId] = useState("");
@@ -39,7 +40,6 @@ export default function MemberVerificationPage() {
   const [searchPayload, setSearchPayload] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const [error, setError] = useState("");
   const memberDirectory = useSyncExternalStore(
     subscribeMemberDirectory,
     getMemberDirectorySnapshot,
@@ -60,7 +60,7 @@ export default function MemberVerificationPage() {
     return buildEligibilityResult(member, companies);
   }, [companies, memberDirectory, searchPayload]);
   const lookupFeedback =
-    error || (!isSearching && hasSearched && !verificationResult ? "Member record not found." : "");
+    !isSearching && hasSearched && !verificationResult ? "Member record not found." : "";
 
   const planSummary = useMemo(() => {
     if (!verificationResult) return "";
@@ -83,12 +83,11 @@ export default function MemberVerificationPage() {
     if (!normalizedPayload) {
       setHasSearched(false);
       setSearchPayload("");
-      setError("Please enter Staff ID, NRIC, or Passport No.");
+      showToast("Please enter Staff ID, NRIC, or Passport No.", "error");
       return;
     }
 
     setIsSearching(true);
-    setError("");
     setHasSearched(true);
     setSearchPayload(normalizedPayload);
     await ensureMemberSeed();
@@ -175,7 +174,6 @@ export default function MemberVerificationPage() {
                   <QrScanner
                     onResult={async (text) => {
                       setIsSearching(true);
-                      setError("");
                       try {
                         const res = await fetch(withBasePath("/api/provider/qr/resolve"), {
                           method: "POST",
@@ -184,18 +182,18 @@ export default function MemberVerificationPage() {
                         });
                         const json = await res.json().catch(() => null);
                         if (!res.ok || !json?.ok) {
-                          setError(json?.error || "Scan failed.");
+                          showToast(json?.error || "Scan failed.", "error");
                           setIsSearching(false);
                           return;
                         }
                         setSearchPayload(json.staffId || json.nricPassport || "");
                         setHasSearched(true);
                       } catch {
-                        setError("Failed to resolve QR token.");
+                        showToast("Failed to resolve QR token.", "error");
                       }
                       setIsSearching(false);
                     }}
-                    onError={(msg) => setError(msg)}
+                    onError={(msg) => showToast(msg, "error")}
                   />
                 </div>
                 <p className="mt-4 text-sm font-bold text-slate-600">Point camera at Member Digital Card QR</p>

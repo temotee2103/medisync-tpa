@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
-import { Building2, Lock, User, AlertCircle } from "lucide-react";
+import { Building2, Lock, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { withBasePath } from "@/lib/basePath";
 import { resetSharedClientState } from "@/lib/clientStateReset";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { showToast, ToastContainer } from "@/components/ui/Toast";
 
 type LoginPayload = {
   ok?: boolean;
@@ -23,21 +24,18 @@ type LoginPayload = {
 export default function ProviderLoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [formData, setFormData] = useState({ username: "", password: "" });
 
   useEffect(() => {
-    if (error) return;
     const reason = new URLSearchParams(window.location.search).get("reason");
-    if (reason === "unauthenticated") setError("Session expired. Please sign in again.");
-    else if (reason === "access_denied") setError("Access denied. Provider only.");
-    else if (reason === "role_error") setError("Unable to verify access. Please sign in again.");
-  }, [error]);
+    if (reason === "unauthenticated") showToast("Session expired. Please sign in again.", "error");
+    else if (reason === "access_denied") showToast("Access denied. Provider only.", "error");
+    else if (reason === "role_error") showToast("Unable to verify access. Please sign in again.", "error");
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError("");
     try {
       resetSharedClientState();
       const response = await fetch(withBasePath("/api/auth/provider/login"), {
@@ -69,7 +67,7 @@ export default function ProviderLoginPage() {
       }
       router.push("/provider/dashboard");
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "Login failed.");
+      showToast(error instanceof Error ? error.message : "Login failed.", "error");
     } finally {
       setLoading(false);
     }
@@ -96,12 +94,6 @@ export default function ProviderLoginPage() {
         </div>
 
         <form onSubmit={handleLogin} className="w-full flex flex-col gap-4">
-          {error && (
-            <div className="bg-red-50 text-red-600 text-xs p-3 rounded-lg flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              {error}
-            </div>
-          )}
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700 ml-1">Username</label>
             <div className="relative">
@@ -146,6 +138,7 @@ export default function ProviderLoginPage() {
           Partner access only. For registration inquiries, contact Medisync Support.
         </p>
       </GlassCard>
+      <ToastContainer />
     </div>
   );
 }

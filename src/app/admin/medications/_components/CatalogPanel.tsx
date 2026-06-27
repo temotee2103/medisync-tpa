@@ -21,6 +21,7 @@ import { fetchAdminSession, type AdminRole } from "@/lib/adminSession";
 import { isAdminReadOnly } from "@/lib/adminPermissions";
 import { AlertCircle, Plus, RefreshCcw, Save, Search, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { showToast } from "@/components/ui/Toast";
 
 type ImportMode = "merge" | "replace";
 
@@ -89,7 +90,6 @@ export default function CatalogPanel({ catalogType }: Props) {
   const [diagnosisMeta, setDiagnosisMeta] = useState<Record<string, { shortName: string }>>({});
   const [adminRole, setAdminRole] = useState<AdminRole>("accountant");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<CatalogStatus | "All">("Active");
@@ -124,7 +124,6 @@ export default function CatalogPanel({ catalogType }: Props) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError("");
     try {
       if (catalogType === "diagnosis") {
         const rows = await fetchCatalogItemRows("diagnosis");
@@ -144,7 +143,7 @@ export default function CatalogPanel({ catalogType }: Props) {
         setDiagnosisMeta({});
       }
     } catch (error: unknown) {
-      setError(getErrorMessage(error, "Unable to load catalog."));
+      showToast(getErrorMessage(error, "Unable to load catalog."), "error");
       setItems([]);
       setDiagnosisMeta({});
     } finally {
@@ -211,7 +210,6 @@ export default function CatalogPanel({ catalogType }: Props) {
     if (isCatalogReadOnly) return;
     if (!importFile) return;
     setLoading(true);
-    setError("");
     try {
       if (catalogType === "diagnosis") {
         const rows = importRows as Array<{ name: string; shortName?: string }>;
@@ -250,7 +248,6 @@ export default function CatalogPanel({ catalogType }: Props) {
     const name = addName.trim();
     if (!name) return;
     setLoading(true);
-    setError("");
     try {
       if (catalogType === "diagnosis") {
         await mergeCatalogWithData("diagnosis", [
@@ -266,7 +263,7 @@ export default function CatalogPanel({ catalogType }: Props) {
       setIsAddOpen(false);
       await load();
     } catch (error: unknown) {
-      setError(getErrorMessage(error, "Unable to add item."));
+      showToast(getErrorMessage(error, "Unable to add item."), "error");
     } finally {
       setLoading(false);
     }
@@ -276,13 +273,12 @@ export default function CatalogPanel({ catalogType }: Props) {
     if (isCatalogReadOnly) return;
     const next = item.status === "Active" ? "Inactive" : "Active";
     setLoading(true);
-    setError("");
     try {
       await setCatalogItemStatus(item.id, next);
       await audit("catalog_toggle", { catalog_type: catalogType, id: item.id, name: item.name, status: next });
       await load();
     } catch (error: unknown) {
-      setError(getErrorMessage(error, "Unable to update status."));
+      showToast(getErrorMessage(error, "Unable to update status."), "error");
     } finally {
       setLoading(false);
     }
@@ -292,7 +288,6 @@ export default function CatalogPanel({ catalogType }: Props) {
     if (isCatalogReadOnly) return;
     if (!baselinePath) return;
     setLoading(true);
-    setError("");
     try {
       const res = await fetch(baselinePath);
       if (!res.ok) throw new Error("Unable to load baseline file.");
@@ -303,7 +298,7 @@ export default function CatalogPanel({ catalogType }: Props) {
       setImportFile(file);
       setIsImportOpen(true);
     } catch (error: unknown) {
-      setError(getErrorMessage(error, "Unable to reset baseline."));
+      showToast(getErrorMessage(error, "Unable to reset baseline."), "error");
     } finally {
       setLoading(false);
     }
@@ -333,13 +328,6 @@ export default function CatalogPanel({ catalogType }: Props) {
           )}
         </div>
       </div>
-
-      {error && (
-        <GlassCard className="p-4 border-rose-200 bg-rose-50/60 text-sm text-rose-700 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          {error}
-        </GlassCard>
-      )}
 
       <GlassCard className="p-4 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px] gap-3">

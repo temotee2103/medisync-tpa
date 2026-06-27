@@ -9,26 +9,24 @@ import {
   ArrowLeft,
   Mail,
   Building2,
-  CheckCircle2,
-  AlertCircle
+  CheckCircle2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { withBasePath } from "@/lib/basePath";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { showToast, ToastContainer } from "@/components/ui/Toast";
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [error, setError] = useState("");
   const [role, setRole] = useState("member");
   const [identifier, setIdentifier] = useState("");
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
     setLoading(true);
 
     try {
@@ -93,9 +91,10 @@ export default function ForgotPasswordPage() {
       }
 
       setSuccess(true);
+      showToast("Password reset email sent. Check your inbox.", "success");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Password reset failed. Please try again.";
-      setError(message);
+      showToast(message, "error");
     } finally {
       setLoading(false);
     }
@@ -127,34 +126,26 @@ export default function ForgotPasswordPage() {
             <div className="flex p-1 bg-slate-100 rounded-lg">
               <button
                 type="button"
-                onClick={() => { setRole("member"); setIdentifier(""); setError(""); }}
+                onClick={() => { setRole("member"); setIdentifier(""); }}
                 className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${role === "member" ? "bg-white text-sky-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               >
                 Member
               </button>
               <button
                 type="button"
-                onClick={() => { setRole("vendor"); setIdentifier(""); setError(""); }}
+                onClick={() => { setRole("vendor"); setIdentifier(""); }}
                 className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${role === "vendor" ? "bg-white text-sky-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               >
                 Vendor
               </button>
               <button
                 type="button"
-                onClick={() => { setRole("admin"); setIdentifier(""); setError(""); }}
+                onClick={() => { setRole("admin"); setIdentifier(""); }}
                 className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${role === "admin" ? "bg-white text-sky-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               >
                 Admin
               </button>
             </div>
-
-            {/* Error */}
-            {error && (
-              <div className="bg-red-50 text-red-600 text-xs p-3 rounded-lg flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                {error}
-              </div>
-            )}
 
             {/* Dynamic Fields */}
             <div className="space-y-4 animate-in slide-in-from-top-2">
@@ -222,6 +213,7 @@ export default function ForgotPasswordPage() {
           </Link>
         )}
       </GlassCard>
+      <ToastContainer />
     </div>
   );
 }

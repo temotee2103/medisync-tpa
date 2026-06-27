@@ -39,6 +39,7 @@ import {
   SlidersHorizontal,
   Users,
 } from "lucide-react";
+import { showToast } from "@/components/ui/Toast";
 
 type AccountantTab = "member" | "vendor";
 type PayoutFilter = "all" | "complete" | "missing";
@@ -66,7 +67,6 @@ export default function AccountantWorkspacePage() {
   const [adminSession, setAdminSession] = useState<AdminSession | null>(null);
   const [queueItems, setQueueItems] = useState<AccountantQueueItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<AccountantTab>("member");
   const [searchTerm, setSearchTerm] = useState("");
   const [payoutFilter, setPayoutFilter] = useState<PayoutFilter>("all");
@@ -89,13 +89,12 @@ export default function AccountantWorkspacePage() {
     void (async () => {
       try {
         setIsLoading(true);
-        setError("");
         const items = await buildAccountantQueue();
         if (!cancelled) setQueueItems(items);
       } catch (buildError) {
         if (!cancelled) {
           setQueueItems([]);
-          setError(buildError instanceof Error ? buildError.message : "Unable to load accountant queue.");
+          showToast(buildError instanceof Error ? buildError.message : "Unable to load accountant queue.", "error");
         }
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -552,10 +551,6 @@ export default function AccountantWorkspacePage() {
         </div>
         <p className="text-xs text-slate-500">{filteredItems.length} result(s)</p>
       </GlassCard>
-
-      {error ? (
-        <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
-      ) : null}
 
       {isLoading ? (
         <GlassCard className="p-6 text-sm text-slate-500">Loading accountant queue...</GlassCard>

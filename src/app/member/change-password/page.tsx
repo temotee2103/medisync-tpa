@@ -3,16 +3,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { AlertCircle, Lock, ShieldCheck } from "lucide-react";
+import { Lock, ShieldCheck } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { withBasePath } from "@/lib/basePath";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { showToast, ToastContainer } from "@/components/ui/Toast";
 
 export default function MemberChangePasswordPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     password: "",
     confirmPassword: "",
@@ -40,15 +40,14 @@ export default function MemberChangePasswordPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
 
     if (formData.password.length < 8) {
-      setError("Password must be at least 8 characters.");
+      showToast("Password must be at least 8 characters.", "error");
       return;
     }
 
     if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match.");
+      showToast("Passwords do not match.", "error");
       return;
     }
 
@@ -67,7 +66,7 @@ export default function MemberChangePasswordPage() {
       if (updateError) throw updateError;
       router.push("/member/dashboard");
     } catch (err: any) {
-      setError(String(err?.message || "Failed to update password."));
+      showToast(String(err?.message || "Failed to update password."), "error");
     } finally {
       setLoading(false);
     }
@@ -87,13 +86,6 @@ export default function MemberChangePasswordPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="flex w-full flex-col gap-4">
-          {error && (
-            <div className="flex items-center gap-2 rounded-lg bg-red-50 p-3 text-xs text-red-600">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              {error}
-            </div>
-          )}
-
           <div className="space-y-2">
             <label className="ml-1 text-sm font-medium text-slate-700">New Password</label>
             <div className="relative">
@@ -133,6 +125,7 @@ export default function MemberChangePasswordPage() {
           </GlassButton>
         </form>
       </GlassCard>
+      <ToastContainer />
     </div>
   );
 }

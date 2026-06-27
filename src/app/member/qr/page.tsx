@@ -6,19 +6,18 @@ import Image from "next/image";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { withBasePath } from "@/lib/basePath";
+import { showToast } from "@/components/ui/Toast";
 
 export default function MemberQrPage() {
-  const [error, setError] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [exp, setExp] = useState<number>(0);
   const didFetch = useRef(false);
 
   const refresh = useCallback(async () => {
-    setError("");
     const res = await fetch(withBasePath("/api/member/qr-token"), { cache: "no-store" });
     const json = await res.json().catch(() => null);
     if (!res.ok || !json?.ok) {
-      setError(json?.error || "Failed to generate QR.");
+      showToast(json?.error || "Failed to generate QR.", "error");
       return;
     }
     const dataUrl = await QRCode.toDataURL(String(json.token), { margin: 1, width: 280 });
@@ -43,9 +42,6 @@ export default function MemberQrPage() {
       </div>
 
       <GlassCard className="p-6 space-y-4">
-        {error ? (
-          <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
-        ) : null}
         <div className="flex items-center justify-center">
           {qrDataUrl ? (
             <Image src={qrDataUrl} alt="Member check-in QR" width={280} height={280} className="rounded-2xl border border-slate-200 bg-white p-3" />

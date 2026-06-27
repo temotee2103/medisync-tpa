@@ -20,6 +20,7 @@ import { withBasePath } from "@/lib/basePath";
 import { resetSharedClientState } from "@/lib/clientStateReset";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureMemberSeed, getMemberSession } from "@/lib/memberSession";
+import { ToastContainer } from "@/components/ui/Toast";
 
 export default function MemberLayout({
   children,
@@ -227,6 +228,7 @@ export default function MemberLayout({
           {children}
         </div>
       </main>
+      <ToastContainer />
     </div>
   );
 }

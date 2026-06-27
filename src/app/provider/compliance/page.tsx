@@ -114,7 +114,6 @@ export default function CompliancePage() {
     fileName: string; fileDataUrl: string; fileMimeType: string;
     expiryDate: string; error: string; file?: File;
   }>>({});
-  const [apcUploadError, setApcUploadError] = useState("");
   const [apcUpload, setApcUpload] = useState<{
     providerUserId: string;
     fileName: string;
@@ -324,7 +323,7 @@ export default function CompliancePage() {
       setDocUploadField(docType, "fileDataUrl", "");
       setDocUploadField(docType, "fileMimeType", "");
       setDocUploadField(docType, "expiryDate", "");
-      showToast("✓ Submitted successfully — pending admin review.", "success");
+      showToast("Submitted for review.", "success");
     } catch (err) { showToast(err instanceof Error ? err.message : "Upload failed. Please refresh the page and try again.", "error"); }
     finally { setSubmittingDoc(null); }
   };
@@ -621,10 +620,9 @@ export default function CompliancePage() {
                 disabled={!canUploadApc}
                 onClick={async () => {
                   if (!session?.vendorId || !selectedApcDoctorId || !apcUpload.fileName || !apcUpload.expiryDate) {
-                    setApcUploadError("Please select a doctor, file, and expiry date.");
+                    showToast("Please select a doctor, file, and expiry date.", "warning");
                     return;
                   }
-                  setApcUploadError("");
                   try {
                     let storagePath: string | undefined;
                     if (apcUpload.file) {
@@ -646,18 +644,15 @@ export default function CompliancePage() {
                       fileMimeType: "",
                       expiryDate: "",
                     });
-                    setApcUploadError("✓ APC submitted successfully — pending admin review.");
+                    showToast("APC submitted for review.", "success");
                   } catch {
-                    setApcUploadError("Upload failed. Please try again.");
+                    showToast("APC upload failed.", "error");
                   }
                 }}
               >
                 Send APC
               </GlassButton>
             </div>
-            {apcUploadError ? (
-              <p className={apcUploadError.startsWith("✓") ? "mt-3 text-xs text-emerald-600 font-medium" : "mt-3 text-xs text-red-600"}>{apcUploadError}</p>
-            ) : null}
             {currentUserRole === "doctor" ? (
               <p className="mt-3 text-xs text-slate-500">
                 Doctor login is limited to your own APC record.

@@ -22,11 +22,11 @@ export default function ProviderPayoutProfilePage() {
     let cancelled = false;
     (async () => {
       try {
-        if (!session?.vendorId) {
+        if (!session?.providerUuid) {
           if (!cancelled) showToast("Session not found.", "error");
           return;
         }
-        const existing = await getProviderPayoutProfile(session.vendorId);
+        const existing = await getProviderPayoutProfile(session.providerUuid);
         if (!cancelled && existing) {
           setBeneficiaryName(existing.beneficiaryName);
           setBankName(existing.bankName);
@@ -43,10 +43,10 @@ export default function ProviderPayoutProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [session?.vendorId]);
+  }, [session?.providerUuid]);
 
   const onSave = async () => {
-    if (!session?.vendorId) {
+    if (!session?.providerUuid) {
       showToast("Session not found.", "error");
       return;
     }
@@ -56,7 +56,7 @@ export default function ProviderPayoutProfilePage() {
     }
     try {
       await upsertProviderPayoutProfile({
-        providerId: session.vendorId,
+        providerId: session.providerUuid,
         beneficiaryName,
         bankName,
         accountNumber,

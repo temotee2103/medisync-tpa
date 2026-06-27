@@ -185,7 +185,7 @@ export default function ProviderLayout({
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden md:flex w-72 flex-col fixed inset-y-0 left-0 bg-white/40 backdrop-blur-xl border-r border-white/50 z-50">
+      <aside className="hidden md:flex w-80 flex-col fixed inset-y-0 left-0 bg-white/40 backdrop-blur-xl border-r border-white/50 z-50">
         <div className="h-16 flex items-center px-6 border-b border-white/30">
           <div className="relative w-48 h-12">
             <Image src={withBasePath("/logo-2.png")} alt="Logo" fill sizes="192px" className="object-contain" />
@@ -275,7 +275,7 @@ export default function ProviderLayout({
         </div>
       )}
 
-      <main className="flex-1 md:pl-72 pt-16 md:pt-0">
+      <main className="flex-1 md:pl-80 pt-16 md:pt-0">
         <div className="p-4 md:p-8 max-w-7xl mx-auto">
           {children}
         </div>

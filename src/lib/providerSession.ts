@@ -719,9 +719,9 @@ export const insertProviderCredential = async (payload: {
       status: "submitted",
       file_name: payload.fileName,
       mime_type: payload.fileMimeType || null,
-      submitted_by: payload.submittedBy,
     };
-    await supabase.from("provider_credentials").insert(row);
+    const { error: insertErr } = await supabase.from("provider_credentials").insert(row);
+    if (insertErr) throw insertErr;
     await refreshProviderCredentialsSnapshot();
     return;
   }
@@ -736,9 +736,9 @@ export const insertProviderCredential = async (payload: {
     status: "submitted",
     file_name: payload.fileName,
     mime_type: payload.fileMimeType || null,
-    submitted_by: payload.submittedBy,
   };
-  await supabase.from("provider_credentials").insert(row);
+  const { error: insertErr } = await supabase.from("provider_credentials").insert(row);
+  if (insertErr) throw insertErr;
   await refreshProviderCredentialsSnapshot();
 };
 

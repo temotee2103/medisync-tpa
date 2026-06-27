@@ -269,19 +269,6 @@ export default function CompliancePage() {
 
 
   const apcList = visibleApcList;
-  const apcHeaderStatus = isCompliant
-    ? "approved"
-    : apcList.some((d) => getApcDisplayStatus(d) === "submitted")
-      ? "submitted"
-      : apcList.some((d) => getApcDisplayStatus(d) === "expired")
-        ? "expired"
-        : apcList.some((d) => getApcDisplayStatus(d) === "rejected")
-          ? "rejected"
-          : "missing";
-  const selectedApcDoctorId =
-    currentUserRole === "doctor"
-      ? visibleDoctors[0]?.providerUserUuid || visibleDoctors[0]?.memberId || ""
-      : apcUpload.providerUserId || visibleDoctors[0]?.providerUserUuid || visibleDoctors[0]?.memberId || "";
 
   const statusPill = (status?: string) => {
     if (status === "approved") return "bg-emerald-100 text-emerald-700";
@@ -299,6 +286,20 @@ export default function CompliancePage() {
     if (doc.status === "approved" && doc.expiryDate && doc.expiryDate < today) return "expired";
     return doc.status || "missing";
   };
+
+  const apcHeaderStatus = isCompliant
+    ? "approved"
+    : apcList.some((d) => getApcDisplayStatus(d) === "submitted")
+      ? "submitted"
+      : apcList.some((d) => getApcDisplayStatus(d) === "expired")
+        ? "expired"
+        : apcList.some((d) => getApcDisplayStatus(d) === "rejected")
+          ? "rejected"
+          : "missing";
+  const selectedApcDoctorId =
+    currentUserRole === "doctor"
+      ? visibleDoctors[0]?.providerUserUuid || visibleDoctors[0]?.memberId || ""
+      : apcUpload.providerUserId || visibleDoctors[0]?.providerUserUuid || visibleDoctors[0]?.memberId || "";
 
   const DOC_TYPE_CONFIGS = [
     { key: "clinic_license", label: "Borang F", icon: Building2Icon, required: true, nonExpiry: true, group: "main" },

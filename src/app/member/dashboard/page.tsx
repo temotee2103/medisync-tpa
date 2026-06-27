@@ -156,7 +156,6 @@ export default function CustomerDashboard() {
                 </div>
                 <div className="space-y-1">
                   <h3 className="text-2xl font-bold text-slate-900">Claims and benefit utilization overview</h3>
-                  <p className="max-w-2xl text-sm text-slate-600">Track your submitted claims, reimbursement movement, and remaining medical balance in one operational dashboard.</p>
                 </div>
               </div>
 

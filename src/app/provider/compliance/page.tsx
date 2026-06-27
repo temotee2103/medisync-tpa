@@ -129,6 +129,7 @@ export default function CompliancePage() {
   });
   const [resolvedProviderSession, setResolvedProviderSession] = useState<ProviderSession | null>(null);
   const [resolvedUserName, setResolvedUserName] = useState("");
+  const [submittingDoc, setSubmittingDoc] = useState<string | null>(null);
 
   const readFileAsDataUrl = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -308,6 +309,7 @@ export default function CompliancePage() {
       return;
     }
     setDocUploadField(docType, "error", "");
+    setSubmittingDoc(docType);
     try {
       await insertProviderCredential({ vendorId: session.vendorId, docType: docType as ProviderCredentialDocType, providerUserId: null, fileName: upload.fileName, fileDataUrl: upload.fileDataUrl, fileMimeType: upload.fileMimeType, expiryDate: upload.expiryDate, submittedBy: "vendor" });
       setDocUploadField(docType, "fileName", "");
@@ -316,6 +318,7 @@ export default function CompliancePage() {
       setDocUploadField(docType, "expiryDate", "");
       showToast("✓ Submitted successfully — pending admin review.", "success");
     } catch (err) { showToast(err instanceof Error ? err.message : "Upload failed. Please refresh the page and try again.", "error"); }
+    finally { setSubmittingDoc(null); }
   };
 
   if (isResolvingProvider) {
@@ -484,7 +487,8 @@ export default function CompliancePage() {
                 </div>
                 <div className="mt-3">
                   <GlassButton
-                    disabled={!canManageClinicLicense}
+                    disabled={!canManageClinicLicense || submittingDoc === config.key}
+                    isLoading={submittingDoc === config.key}
                     onClick={() => submitDocUpload(config.key)}
                   >
                     Send Review

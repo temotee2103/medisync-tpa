@@ -345,9 +345,6 @@ export default function ProviderDashboardPage() {
                   <Activity className="h-5 w-5 text-sky-600" />
                   Claims Performance
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Current submission outcomes and financial movement for this provider.
-                </p>
               </div>
               <div className="rounded-2xl border border-sky-100 bg-sky-50/70 px-4 py-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700">Approval Rate</p>
@@ -444,7 +441,6 @@ export default function ProviderDashboardPage() {
                   <FileText className="h-5 w-5 text-sky-600" />
                   Recent Claim Activity
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">Latest provider submissions and review outcomes.</p>
               </div>
               <Link href="/provider/payments" className="text-sm font-semibold text-sky-700 hover:underline">
                 Open payment history
@@ -516,7 +512,6 @@ export default function ProviderDashboardPage() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="font-semibold text-slate-900">Verify Patient Coverage</p>
-                      <p className="mt-1 text-sm text-slate-500">Check active member access before treatment.</p>
                     </div>
                     <ArrowRight className="h-5 w-5 text-emerald-600" />
                   </div>
@@ -550,7 +545,6 @@ export default function ProviderDashboardPage() {
                   <ShieldCheck className="h-5 w-5 text-sky-600" />
                   Compliance Readiness
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">Document status tied to the current provider record.</p>
               </div>
               <span
                 className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${

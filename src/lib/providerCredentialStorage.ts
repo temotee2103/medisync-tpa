@@ -1,23 +1,4 @@
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-
-export const PROVIDER_CREDENTIAL_BUCKET = "provider-claim-documents";
-
-const sanitizePathSegment = (value: string, fallback: string) => {
-  const sanitized = value.trim().replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_");
-  return sanitized.replace(/^_+|_+$/g, "") || fallback;
-};
-
-export const buildCredentialStoragePath = (
-  vendorId: string,
-  docType: string,
-  fileName: string,
-  timestamp = Date.now()
-) => {
-  const safeVendor = sanitizePathSegment(vendorId, "vendor");
-  const safeDocType = sanitizePathSegment(docType, "doc");
-  const safeFileName = sanitizePathSegment(fileName || "document", "document");
-  return `provider-credentials/${safeVendor}/${safeDocType}-${timestamp}-${safeFileName}`;
-};
+import { withBasePath } from "@/lib/basePath";
 
 export type CredentialUploadResult = {
   storagePath: string;
@@ -25,24 +6,30 @@ export type CredentialUploadResult = {
   mimeType: string;
 };
 
-/** Upload a credential file to Supabase Storage. Returns the storage path. */
+/** Upload a credential file via API route (uses service key, bypasses Storage RLS). */
 export const uploadCredentialFile = async (
   vendorId: string,
   docType: string,
   file: File
 ): Promise<CredentialUploadResult> => {
-  const supabase = createSupabaseBrowserClient();
-  const storagePath = buildCredentialStoragePath(vendorId, docType, file.name);
-  const mimeType = file.type || "application/octet-stream";
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("vendorId", vendorId);
+  formData.append("docType", docType);
 
-  const { error } = await supabase.storage
-    .from(PROVIDER_CREDENTIAL_BUCKET)
-    .upload(storagePath, file, {
-      upsert: false,
-      contentType: mimeType,
-    });
+  const response = await fetch(withBasePath("/api/provider/upload-credential"), {
+    method: "POST",
+    body: formData,
+  });
 
-  if (error) throw error;
+  const json = await response.json();
+  if (!response.ok || !json.ok) {
+    throw new Error(json.error || "Upload failed.");
+  }
 
-  return { storagePath, fileName: file.name, mimeType };
+  return {
+    storagePath: json.storagePath,
+    fileName: json.fileName,
+    mimeType: json.mimeType,
+  };
 };

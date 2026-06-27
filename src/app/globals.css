@@ -14,7 +14,7 @@
 
 html {
   color-scheme: light;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
 }
 
 body {
@@ -23,6 +23,18 @@ body {
   font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+a,
+button,
+th,
+td,
+label,
+legend,
+figcaption,
+summary,
+details {
+  text-transform: uppercase;
 }
 
 input,

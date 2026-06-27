@@ -267,7 +267,7 @@ export default function CompliancePage() {
   };
 
   const DOC_TYPE_CONFIGS = [
-    { key: "clinic_license", label: "Clinic License (Borang F)", icon: Building2Icon, required: true, nonExpiry: true, group: "main" },
+    { key: "clinic_license", label: "Borang F", icon: Building2Icon, required: true, nonExpiry: true, group: "main" },
     { key: "borang_b", label: "Borang B", icon: FileText, required: false, nonExpiry: true, group: "main" },
     { key: "ssm", label: "SSM Certificate", icon: FileText, required: true, nonExpiry: true, group: "main" },
     { key: "tcm", label: "TCM Certificate (Optional)", icon: FileText, required: false, nonExpiry: false, group: "optional" },
@@ -283,7 +283,10 @@ export default function CompliancePage() {
     setDocUploads(prev => ({ ...prev, [docKey]: { ...(prev[docKey] || { fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "", error: "" }), [field]: value } }));
   };
   const submitDocUpload = async (docType: string) => {
-    if (!session?.vendorId) return;
+    if (!session?.vendorId) {
+      setDocUploadField(docType, "error", "Session expired or not available. Please refresh the page and log in again.");
+      return;
+    }
     const upload = docUploads[docType];
     const config = DOC_TYPE_CONFIGS.find(c => c.key === docType);
     const needsExpiry = !config?.nonExpiry;

@@ -9,6 +9,7 @@ export type ProviderComplianceState = "missing" | "submitted" | "approved" | "re
 type ProviderSubmissionGuardInput = {
   role?: string | null;
   clinicLicense?: VendorComplianceDocument;
+  documents?: VendorComplianceDocument[];
   doctorApcs?: VendorDoctorApc[];
   doctorIdentifiers?: Array<string | null | undefined>;
   selectedDoctorId?: string | null;
@@ -176,7 +177,15 @@ export const getProviderSubmissionGuard = (input: ProviderSubmissionGuardInput) 
   ];
   const canAuthorClinicalContent = normalizeRole(input.role) === "doctor";
   const canSaveDraft = canAuthorClinicalContent || normalizeRole(input.role) === "provider_admin";
-  const clinicLicenseState = getClinicLicenseState(input.clinicLicense);
+  const clinicLicenseState = (() => {
+    const rawState = getClinicLicenseState(input.clinicLicense);
+    if (rawState === "approved") return "approved";
+    // Borang B is an acceptable alternative to clinic license (B or F rule)
+    const hasApprovedBorangB = (input.documents || []).some(
+      (d) => d.docType === "borang_b" && getComplianceDocumentState(d, "borang_b") === "approved"
+    );
+    return hasApprovedBorangB ? "approved" : rawState;
+  })();
   const doctorApcState = getDoctorApcState({
     doctorApcs: input.doctorApcs,
     doctorIdentifiers: effectiveDoctorIdentifiers,

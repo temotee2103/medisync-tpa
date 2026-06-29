@@ -622,6 +622,7 @@ export default function ProviderInvoicePage() {
   const submissionGuard = getProviderSubmissionGuard({
     role: currentUserRole,
     clinicLicense: provider?.compliance?.clinicLicense,
+    documents: provider?.compliance?.documents,
     doctorApcs: provider?.compliance?.doctorApcs,
     doctors: providerDoctors,
     selectedDoctorId: preferredDoctorId,

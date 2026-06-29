@@ -37,6 +37,7 @@ import {
   getVendorMembersServerSnapshot,
   getVendorMembersSnapshot,
   normalizeProviderUserRole,
+  getProviderComplianceByVendorId,
   subscribeProviderCredentials,
   subscribeProviderDirectory,
   subscribeVendorMembers,
@@ -599,7 +600,10 @@ export default function ProviderInvoicePage() {
     void providerDirectorySnapshot;
     void providerCredentialsSnapshot;
     void vendorMembersSnapshot;
-    return getProviderById(providerOrgId);
+    const base = getProviderById(providerOrgId);
+    if (!base) return null;
+    const compliance = getProviderComplianceByVendorId(providerOrgId);
+    return { ...base, compliance };
   }, [providerOrgId, providerDirectorySnapshot, providerCredentialsSnapshot, vendorMembersSnapshot]);
   const today = new Date().toISOString().slice(0, 10);
   const currentUser =

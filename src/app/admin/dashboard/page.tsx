@@ -56,7 +56,7 @@ const getClaimDateValue = (claim: AdminClaimRecord) => {
 
 const getClaimStatusScheme = (status: string) => {
   switch (status) {
-    case "Approved":
+    case "approved":
       return "success";
     case "Rejected":
       return "danger";
@@ -175,14 +175,14 @@ export default function AdminDashboard() {
   };
 
   const analytics = useMemo(() => {
-    const approvedClaims = adminClaims.filter((claim) => claim.status === "Approved");
+    const approvedClaims = adminClaims.filter((claim) => claim.status === "approved");
     const rejectedClaims = adminClaims.filter((claim) => claim.status === "Rejected");
     const inReviewClaims = adminClaims.filter((claim) => claim.status === "In review");
     const inProgressClaims = adminClaims.filter((claim) => claim.status === "In progress");
     const pendingQueue = inReviewClaims.length + inProgressClaims.length;
     const approvedValue = approvedClaims.reduce((sum, claim) => sum + claim.amount, 0);
     const pendingValue = adminClaims
-      .filter((claim) => !["Approved", "Rejected"].includes(claim.status))
+      .filter((claim) => !["approved", "Rejected"].includes(claim.status))
       .reduce((sum, claim) => sum + claim.amount, 0);
     const totalClaimValue = adminClaims.reduce((sum, claim) => sum + claim.amount, 0);
     const currentMonthKey = new Date().toISOString().slice(0, 7);
@@ -191,7 +191,7 @@ export default function AdminDashboard() {
       return stamp?.slice(0, 7) === currentMonthKey;
     });
     const closedThisMonth = adminClaims.filter((claim) => {
-      if (!["Approved", "Rejected"].includes(claim.status)) return false;
+      if (!["approved", "Rejected"].includes(claim.status)) return false;
       const stamp = claim.bankSlipUploadedAt || claim.submittedAt || claim.createdAt || claim.date;
       return stamp?.slice(0, 7) === currentMonthKey;
     });

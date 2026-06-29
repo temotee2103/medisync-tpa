@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassButton } from "@/components/ui/GlassButton";
@@ -38,6 +39,7 @@ import {
   Search,
   SlidersHorizontal,
   Users,
+  Download,
 } from "lucide-react";
 import { showToast } from "@/components/ui/Toast";
 
@@ -417,6 +419,38 @@ export default function AccountantWorkspacePage() {
             Complete payouts for claims that are ready. Claims without payout details stay in the queue until payout information is provided.
           </p>
         </div>
+        <GlassButton
+          variant="secondary"
+          size="sm"
+          disabled={isLoading || filteredItems.length === 0}
+          onClick={() => {
+            const BOM = "﻿";
+            const header = "Claim No.,Subject,Provider,Amount,Bank,Account Holder,Account Number,Status";
+            const rows = filteredItems.map((item) =>
+              [
+                item.claimNumber,
+                item.subjectName,
+                item.providerLabel,
+                item.amount.toFixed(2),
+                item.bankName || "-",
+                item.accountHolderName || "-",
+                item.accountNumber || "-",
+                item.payoutStatus,
+              ].join(",")
+            );
+            const csv = BOM + [header, ...rows].join("\n");
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `accountant-queue-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+        >
+          <Download className="w-4 h-4" />
+          Export Queue
+        </GlassButton>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

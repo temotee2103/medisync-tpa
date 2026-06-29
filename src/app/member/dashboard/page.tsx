@@ -63,7 +63,7 @@ export default function CustomerDashboard() {
 
   const analytics = useMemo(() => {
     const annualLimit = currentMember?.familyLumpSumLimit || currentMember?.lumpSumLimit || 50000;
-    const approvedClaims = submittedClaims.filter((claim) => claim.status === "Approved");
+    const approvedClaims = submittedClaims.filter((claim) => claim.status === "approved");
     const pendingClaims = submittedClaims.filter((claim) => claim.status === "In review" || claim.status === "In progress");
     const rejectedClaims = submittedClaims.filter((claim) => claim.status === "Rejected");
     const totalSubmittedAmount = submittedClaims.reduce((sum, claim) => sum + Number(claim.amountSubmitted || 0), 0);
@@ -376,7 +376,7 @@ export default function CustomerDashboard() {
                     <p className="font-bold text-slate-800">{claim.amount}</p>
                     <p className={cn(
                       "text-[10px] font-bold uppercase tracking-wider",
-                      claim.status === "Approved"
+                      claim.status === "approved"
                         ? "text-emerald-600"
                         : claim.status === "Rejected"
                         ? "text-rose-600"

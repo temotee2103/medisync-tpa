@@ -27,8 +27,11 @@ export async function POST(request: Request) {
     if (!userData.user) {
       return NextResponse.json({ ok: false, error: "Unauthenticated." }, { status: 401 });
     }
-    const { data: isProvider } = await supabase.rpc("is_provider");
-    if (!isProvider) {
+    const [{ data: isProvider }, { data: isAdmin }] = await Promise.all([
+      supabase.rpc("is_provider"),
+      supabase.rpc("is_admin"),
+    ]);
+    if (!isProvider && !isAdmin) {
       return NextResponse.json({ ok: false, error: "Access denied." }, { status: 403 });
     }
 

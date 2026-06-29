@@ -59,7 +59,7 @@ const formatProviderSubmissionStatus = (status?: string) => {
     case "in_process":
       return "In Process";
     case "approved":
-      return "Approved";
+      return "approved";
     default:
       return status || "Unknown";
   }

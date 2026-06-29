@@ -121,7 +121,7 @@ export default function CustomerClaimsPage() {
                 <div className="min-w-[100px] text-right">
                   <span
                     className={`text-xs px-2 py-1 rounded-full font-medium ${
-                      claim.status === "Approved"
+                      claim.status === "approved"
                         ? "bg-emerald-100 text-emerald-600"
                         : claim.status === "In progress"
                           ? "bg-sky-100 text-sky-600"

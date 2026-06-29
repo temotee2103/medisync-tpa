@@ -1,13 +1,21 @@
-"use client";
-
-import { getMemberClaimsSnapshot, type MemberClaimRecord } from "@/lib/claimsStore";
-import { getProviderClaimsSnapshot, type ProviderClaimRecord } from "@/lib/providerClaimsStore";
+import type { MemberClaimRecord } from "@/lib/claimsStore";
+import type { ProviderClaimRecord } from "@/lib/providerClaimsStore";
 import {
   getMemberPayoutProfiles,
   getProviderPayoutProfiles,
   type MemberPayoutProfile,
   type ProviderPayoutProfile,
 } from "@/lib/payoutProfilesStore";
+import {
+  getMemberClaimsSnapshot,
+  refreshMemberClaimsSnapshot,
+  subscribeMemberClaims,
+} from "@/lib/claimsStore";
+import {
+  getProviderClaimsSnapshot,
+  refreshProviderClaimsSnapshot,
+  subscribeProviderClaims,
+} from "@/lib/providerClaimsStore";
 import { normalizeUnifiedClaimStatus } from "@/lib/unifiedClaimLifecycle";
 
 export type AccountantQueueItem = {
@@ -21,6 +29,10 @@ export type AccountantQueueItem = {
   adminNote?: string;
   payoutStatus: "complete" | "missing";
   payoutSummary: string;
+  // Full payment details for export (unmasked)
+  bankName?: string;
+  accountHolderName?: string;
+  accountNumber?: string;
   claimHref: string;
   submittedAt?: string;
 };
@@ -84,6 +96,9 @@ const mapMemberQueueItem = (
     adminNote: getLatestAdminNote(claim.auditTrail),
     payoutStatus: payoutProfile ? "complete" : "missing",
     payoutSummary: buildMemberPayoutSummary(payoutProfile),
+    bankName: payoutProfile?.bankName,
+    accountHolderName: payoutProfile?.accountHolderName,
+    accountNumber: payoutProfile?.accountNumber,
     claimHref: `/admin/claims/${claim.id}`,
     submittedAt: claim.createdAt || claim.visitDate,
   };
@@ -106,6 +121,9 @@ const mapProviderQueueItem = (
     adminNote: claim.reviewNote || undefined,
     payoutStatus: payoutProfile ? "complete" : "missing",
     payoutSummary: buildProviderPayoutSummary(payoutProfile),
+    bankName: payoutProfile?.bankName,
+    accountHolderName: payoutProfile?.beneficiaryName,
+    accountNumber: payoutProfile?.accountNumber,
     claimHref: `/admin/claims/${claim.id}`,
     submittedAt: claim.reviewedAt || claim.submittedAt || claim.createdAt,
   };

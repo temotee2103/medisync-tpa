@@ -260,8 +260,8 @@ export default function ReportsPage() {
   }, [adminClaims, effectiveSelectedPeriod, memberCompanyByKey, selectedCompanyId]);
 
   const reportMetrics = useMemo(() => {
-    const approvedClaims = filteredClaims.filter((claim) => claim.status === "Approved");
-    const pendingClaims = filteredClaims.filter((claim) => !["Approved", "Rejected"].includes(claim.status));
+    const approvedClaims = filteredClaims.filter((claim) => claim.status === "approved");
+    const pendingClaims = filteredClaims.filter((claim) => !["approved", "rejected"].includes(claim.status));
     const payoutValue = approvedClaims.reduce((sum, claim) => sum + claim.amount, 0);
     const filteredActiveMembers =
       selectedCompanyId === "all"
@@ -341,7 +341,7 @@ export default function ReportsPage() {
 
   const payoutLog = useMemo(() => {
     return filteredClaims
-      .filter((claim) => claim.status === "Approved")
+      .filter((claim) => claim.status === "approved")
       .map((claim) => {
         const companyId =
           claim.companyId ||
@@ -654,9 +654,9 @@ export default function ReportsPage() {
                           <StatusBadge
                             status={log.status}
                             scheme={
-                              log.status === "Approved"
+                              log.status === "approved"
                                 ? "success"
-                                : log.status === "Rejected"
+                                : log.status === "rejected"
                                   ? "danger"
                                   : "warning"
                             }
@@ -687,9 +687,9 @@ export default function ReportsPage() {
                       <StatusBadge
                         status={log.status}
                         scheme={
-                          log.status === "Approved"
+                          log.status === "approved"
                             ? "success"
-                            : log.status === "Rejected"
+                            : log.status === "rejected"
                               ? "danger"
                               : "warning"
                         }

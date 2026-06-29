@@ -29,6 +29,7 @@ import {
   getProviderSession,
   getVendorMembersByVendor,
   isProviderCompliant,
+  getProviderComplianceByVendorId,
 } from "@/lib/providerSession";
 import {
   ensureProviderClaimsStore,
@@ -53,12 +54,12 @@ const getDocumentState = (status?: string, expiryDate?: string) => {
   if (status === "rejected") return "Rejected";
   if (status === "submitted") return "Submitted";
   if (expiryDate && expiryDate < new Date().toISOString().slice(0, 10)) return "Expired";
-  return "Approved";
+  return "approved";
 };
 
 const getStatusClasses = (status: string) => {
   switch (status) {
-    case "Approved":
+    case "approved":
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
     case "Rejected":
       return "border-rose-200 bg-rose-50 text-rose-700";
@@ -78,7 +79,7 @@ const formatProviderSubmissionStatus = (status?: string) => {
     case "submitted":
       return "Submitted";
     case "approved":
-      return "Approved";
+      return "approved";
     case "rejected":
       return "Rejected";
     default:
@@ -113,7 +114,11 @@ export default function ProviderDashboardPage() {
   }
 
   const providerSession = isHydrated ? getProviderSession() : null;
-  const provider = providerSession?.vendorId ? getProviderById(providerSession.vendorId) : null;
+  const providerBase = providerSession?.vendorId ? getProviderById(providerSession.vendorId) : null;
+  const provider =
+    providerBase && providerSession?.vendorId
+      ? { ...providerBase, compliance: getProviderComplianceByVendorId(providerSession.vendorId) }
+      : null;
   const providerName = provider?.providerName || providerSession?.providerName || "Provider";
   const teamMembers = providerSession?.vendorId ? getVendorMembersByVendor(providerSession.vendorId) : [];
   const activeTeamMembers = teamMembers.filter((member) => member.status === "Active");
@@ -203,7 +208,7 @@ export default function ProviderDashboardPage() {
     const clinicLicense = provider?.compliance?.clinicLicense;
     const doctorApcs = provider?.compliance?.doctorApcs || [];
     const approvedDoctorCount = doctorApcs.filter(
-      (doc) => getDocumentState(doc.status, doc.expiryDate) === "Approved"
+      (doc) => getDocumentState(doc.status, doc.expiryDate) === "approved"
     ).length;
 
     return {

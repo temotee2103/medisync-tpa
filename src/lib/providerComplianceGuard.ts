@@ -36,7 +36,8 @@ export type ProviderDoctorOption = {
 };
 
 export const getComplianceDocumentState = (
-  doc?: VendorComplianceDocument | VendorDoctorApc
+  doc?: VendorComplianceDocument | VendorDoctorApc,
+  docType?: string
 ): ProviderComplianceState => {
   if (!doc || !doc.fileName || String(doc.status || "").trim().toLowerCase() === "missing") {
     return "missing";
@@ -46,6 +47,10 @@ export const getComplianceDocumentState = (
   if (normalizedStatus === "submitted") return "submitted";
   if (normalizedStatus === "rejected") return "rejected";
 
+  // Non-expiry doc types: once approved, always valid (SSM, Borang B/F, TCM)
+  const NON_EXPIRY_TYPES = new Set(["ssm", "borang_b", "clinic_license", "tcm"]);
+  if (docType && NON_EXPIRY_TYPES.has(docType.toLowerCase())) return "approved";
+
   if (!doc.expiryDate || doc.expiryDate < TODAY_KEY) {
     return "expired";
   }
@@ -54,7 +59,7 @@ export const getComplianceDocumentState = (
 };
 
 export const getClinicLicenseState = (clinicLicense?: VendorComplianceDocument) =>
-  getComplianceDocumentState(clinicLicense);
+  getComplianceDocumentState(clinicLicense, "clinic_license");
 
 export const getDoctorApcState = (input: {
   doctorApcs?: VendorDoctorApc[];
@@ -98,11 +103,27 @@ export const getProviderDoctorOptions = (input: {
 
 const getBlockingReason = (input: {
   canAuthorClinicalContent: boolean;
+  canSaveDraft: boolean;
   doctorApcState: ProviderComplianceState;
   clinicLicenseState: ProviderComplianceState;
+  anyDoctorHasApprovedApc: boolean;
 }) => {
+  if (!input.canSaveDraft) {
+    return "Only doctor or provider admin users can submit clinical content.";
+  }
+
   if (!input.canAuthorClinicalContent) {
-    return "Only doctor users can submit clinical content.";
+    // provider_admin — check vendor-level compliance
+    if (!input.anyDoctorHasApprovedApc) {
+      return "No doctor under this vendor has an approved APC. Upload at least one doctor APC before submitting.";
+    }
+    if (input.clinicLicenseState !== "approved") {
+      if (input.clinicLicenseState === "expired") return "Clinic license has expired. Upload an active clinic license before submitting.";
+      if (input.clinicLicenseState === "submitted") return "Clinic license is pending admin approval.";
+      if (input.clinicLicenseState === "rejected") return "Clinic license was rejected. Upload a valid clinic license before submitting.";
+      return "Clinic license is not active.";
+    }
+    return "";
   }
 
   if (input.doctorApcState !== "approved") {
@@ -154,17 +175,24 @@ export const getProviderSubmissionGuard = (input: ProviderSubmissionGuardInput) 
     ...(input.doctorIdentifiers || []),
   ];
   const canAuthorClinicalContent = normalizeRole(input.role) === "doctor";
+  const canSaveDraft = canAuthorClinicalContent || normalizeRole(input.role) === "provider_admin";
   const clinicLicenseState = getClinicLicenseState(input.clinicLicense);
   const doctorApcState = getDoctorApcState({
     doctorApcs: input.doctorApcs,
     doctorIdentifiers: effectiveDoctorIdentifiers,
   });
-  const hasVerifiedDoctorApc = doctorApcState === "approved";
+  // Check if ANY doctor under this vendor has approved APC (for provider_admin)
+  const anyDoctorHasApprovedApc = (input.doctorApcs || []).some((doc) =>
+    getComplianceDocumentState(doc, "apc") === "approved"
+  );
+  const hasVerifiedDoctorApc = doctorApcState === "approved" || anyDoctorHasApprovedApc;
   const hasActiveClinicLicense = clinicLicenseState === "approved";
-  const canSubmit = canAuthorClinicalContent && hasVerifiedDoctorApc && hasActiveClinicLicense;
+  const canSubmit = (canAuthorClinicalContent && hasVerifiedDoctorApc && hasActiveClinicLicense)
+    || (canSaveDraft && !canAuthorClinicalContent && anyDoctorHasApprovedApc && hasActiveClinicLicense);
 
   return {
     canAuthorClinicalContent,
+    canSaveDraft,
     hasVerifiedDoctorApc,
     hasActiveClinicLicense,
     canSubmit,
@@ -172,10 +200,13 @@ export const getProviderSubmissionGuard = (input: ProviderSubmissionGuardInput) 
     clinicLicenseState,
     doctorOptions,
     selectedDoctor,
+    anyDoctorHasApprovedApc,
     blockingReason: getBlockingReason({
       canAuthorClinicalContent,
+      canSaveDraft,
       doctorApcState,
       clinicLicenseState,
+      anyDoctorHasApprovedApc,
     }),
   };
 };

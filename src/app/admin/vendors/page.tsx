@@ -221,7 +221,14 @@ const getComplianceState = (vendor?: providerSession.ProviderDirectoryEntry | nu
   if (!vendor) return { state: "Missing", clinicStatus: "Missing", apcStatuses: [] as string[] };
   const DOC = providerSession.PROVIDER_CREDENTIAL_DOC_TYPES;
   const clinicStatus = getDocumentState(vendor.compliance?.clinicLicense, DOC.CLINIC_LICENSE);
-  const apcStatuses = (vendor.compliance?.doctorApcs ?? []).map((doc) => getDocumentState(doc, DOC.APC));
+  // At least one doctor (any status) with approved APC makes compliance valid
+  const apcStatuses = (vendor.compliance?.doctorApcs ?? [])
+    .filter((doc) => {
+      const doctor = providerSession.getProviderUserById(vendor.vendorId, doc.providerUserId);
+      const role = providerSession.normalizeProviderUserRole(doctor?.role);
+      return !!doctor && role === "doctor";
+    })
+    .map((doc) => getDocumentState(doc, DOC.APC));
   
   // SSM: required
   const ssmDoc = (vendor.compliance?.documents || []).find((d) => d.docType === DOC.SSM);
@@ -1275,7 +1282,7 @@ export default function VendorManagementPage() {
                     status={
                       (getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE) === "Valid" ||
                        getDocumentState(borangBDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B) === "Valid")
-                        ? "Approved"
+                        ? "approved"
                         : getDocumentState(clinicDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE) === "Review" ||
                           getDocumentState(borangBDoc, providerSession.PROVIDER_CREDENTIAL_DOC_TYPES.BORANG_B) === "Review"
                           ? "Review"
@@ -1465,18 +1472,23 @@ export default function VendorManagementPage() {
                               if (disableVendorEditing) return;
                               if (!uploadDraft.fileName) return;
                               if (!isNonExpiry && !uploadDraft.expiryDate) return;
+                              try {
                               let storagePath: string | undefined;
                               if (uploadDraft.file) {
                                 const result = await uploadCredentialFile(complianceVendor.vendorId, docType, uploadDraft.file);
                                 storagePath = result.storagePath;
                               }
-                              submitVendorDocument(complianceVendor.vendorId, {
+                              await submitVendorDocument(complianceVendor.vendorId, {
                                 fileName: uploadDraft.fileName, storagePath,
                                 fileMimeType: uploadDraft.fileMimeType,
                                 docType,
                                 expiryDate: isNonExpiry ? undefined : uploadDraft.expiryDate,
                                 submittedBy: "admin",
                               });
+                              } catch (err: any) {
+                                showToast(err?.message || "Upload failed", "error");
+                                return;
+                              }
                               setUploadDocType(null);
                               setUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
                             }}>
@@ -1686,12 +1698,13 @@ export default function VendorManagementPage() {
                                   if (disableVendorEditing) return;
                                   if (!selectedDoctor.providerUserUuid) return;
                                   if (!apcUploadDraft.fileName || !apcUploadDraft.expiryDate) return;
+                                  try {
                                   let storagePath: string | undefined;
                                   if (apcUploadDraft.file) {
                                     const result = await uploadCredentialFile(complianceVendor.vendorId, "apc", apcUploadDraft.file);
                                     storagePath = result.storagePath;
                                   }
-                                  submitVendorDoctorApc(complianceVendor.vendorId, {
+                                  await submitVendorDoctorApc(complianceVendor.vendorId, {
                                     providerUserId: selectedDoctor.providerUserUuid,
                                     fileName: apcUploadDraft.fileName,
                                     storagePath,
@@ -1699,6 +1712,10 @@ export default function VendorManagementPage() {
                                     expiryDate: apcUploadDraft.expiryDate,
                                     submittedBy: "admin",
                                   });
+                                  } catch (err: any) {
+                                    showToast(err?.message || "APC upload failed", "error");
+                                    return;
+                                  }
                                   setApcUploadDraft({ fileName: "", fileDataUrl: "", fileMimeType: "", expiryDate: "" });
                                 }}
                               >

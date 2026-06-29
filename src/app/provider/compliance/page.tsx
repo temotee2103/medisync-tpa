@@ -27,6 +27,7 @@ import {
   getVendorMembersByVendor,
   normalizeProviderUserRole,
   isProviderCompliant,
+  getProviderComplianceByVendorId,
   insertProviderCredential,
   fetchCredentialStoragePath,
   PROVIDER_CREDENTIAL_DOC_TYPES,
@@ -215,7 +216,11 @@ export default function CompliancePage() {
   void providerDirectorySnapshot;
   void providerCredentialsSnapshot;
   void vendorMembersSnapshot;
-  const provider = providerOrgId ? getProviderById(providerOrgId) : null;
+  const providerBase = providerOrgId ? getProviderById(providerOrgId) : null;
+  const provider =
+    providerBase && providerOrgId
+      ? { ...providerBase, compliance: getProviderComplianceByVendorId(providerOrgId) }
+      : null;
   const currentUser =
     providerOrgId && session?.providerUserId ? getProviderUserById(providerOrgId, session.providerUserId) : null;
   const currentUserRole =

@@ -57,7 +57,7 @@ const formatProviderClaimStatusLabel = (status?: string) => {
     case "request_additional_information":
       return "Request Additional Information";
     case "approved":
-      return "Approved";
+      return "approved";
     case "rejected":
       return "Rejected";
     default:

@@ -709,6 +709,7 @@ export const insertProviderCredential = async (payload: {
     }
     // Use the retry UUID
     const providerUserUuid = payload.providerUserId ? resolveProviderUserUuid(payload.vendorId, payload.providerUserId) : "";
+    const isAdmin = payload.submittedBy === "admin";
     const supabase = createSupabaseBrowserClient();
     const row: Record<string, unknown> = {
       provider_id: retryUuid,
@@ -716,9 +717,10 @@ export const insertProviderCredential = async (payload: {
       doc_type: payload.docType,
       storage_path: payload.storagePath || null,
       expiry_date: payload.expiryDate || null,
-      status: "submitted",
+      status: isAdmin ? "approved" : "submitted",
       file_name: payload.fileName,
       mime_type: payload.fileMimeType || null,
+      ...(isAdmin ? { reviewed_at: new Date().toISOString() } : {}),
     };
     const { error: insertErr } = await supabase.from("provider_credentials").insert(row);
     if (insertErr) throw insertErr;
@@ -726,6 +728,7 @@ export const insertProviderCredential = async (payload: {
     return;
   }
   const providerUserUuid = payload.providerUserId ? resolveProviderUserUuid(payload.vendorId, payload.providerUserId) : "";
+  const isAdmin = payload.submittedBy === "admin";
   const supabase = createSupabaseBrowserClient();
   const row: Record<string, unknown> = {
     provider_id: providerUuid,
@@ -733,9 +736,10 @@ export const insertProviderCredential = async (payload: {
     doc_type: payload.docType,
     storage_path: payload.storagePath || null,
     expiry_date: payload.expiryDate || null,
-    status: "submitted",
+    status: isAdmin ? "approved" : "submitted",
     file_name: payload.fileName,
     mime_type: payload.fileMimeType || null,
+    ...(isAdmin ? { reviewed_at: new Date().toISOString() } : {}),
   };
   const { error: insertErr } = await supabase.from("provider_credentials").insert(row);
   if (insertErr) throw insertErr;
@@ -754,7 +758,7 @@ export const deleteProviderCredential = async (credentialId: string) => {
   await refreshProviderCredentialsSnapshot();
 };
 
-export const submitVendorClinicLicense = (
+export const submitVendorClinicLicense = async (
   vendorId: string,
   payload: {
     fileName: string;
@@ -764,7 +768,7 @@ export const submitVendorClinicLicense = (
     submittedBy: "vendor" | "admin";
   }
 ) => {
-  void insertProviderCredential({
+  await insertProviderCredential({
     vendorId,
     docType: PROVIDER_CREDENTIAL_DOC_TYPES.CLINIC_LICENSE,
     providerUserId: null,
@@ -776,7 +780,7 @@ export const submitVendorClinicLicense = (
   });
 };
 
-export const submitVendorDocument = (
+export const submitVendorDocument = async (
   vendorId: string,
   payload: {
     fileName: string;
@@ -787,7 +791,7 @@ export const submitVendorDocument = (
     submittedBy: "vendor" | "admin";
   }
 ) => {
-  void insertProviderCredential({
+  await insertProviderCredential({
     vendorId,
     docType: payload.docType,
     providerUserId: null,
@@ -842,12 +846,12 @@ export const isProviderCompliant = (vendorId: string) => {
   if (!provider) return false;
   const compliance = provider.compliance || getProviderComplianceByVendorId(vendorId);
   
-  // APC: Required — at least one active doctor must have approved APC
+  // At least one doctor (any status) must have approved APC
   const apcStates = (compliance.doctorApcs || [])
     .filter((doc) => {
       const doctor = getProviderUserById(vendorId, doc.providerUserId);
       const role = normalizeProviderUserRole(doctor?.role);
-      return !!doctor && doctor.status === "Active" && role === "doctor";
+      return !!doctor && role === "doctor";
     })
     .map((doc) => getDocumentState(doc, PROVIDER_CREDENTIAL_DOC_TYPES.APC));
   if (apcStates.length === 0) return false;
